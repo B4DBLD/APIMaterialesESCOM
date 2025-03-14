@@ -1,0 +1,6 @@
+@APIMaterialesESCOM_HostAddress = http://localhost:5098
+
+GET {{APIMaterialesESCOM_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
