@@ -5,14 +5,16 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace APIMaterialesESCOM.Controllers
 {
+    // Controlador que maneja las operaciones relacionadas con los usuarios del repositorio digital
     [ApiController]
-    [Route("api/[controller]")]
-    public class ControladorUsuarios: ControllerBase
+    [Route("repositorio/usuarios")]
+    public class ControladorUsuarios : ControllerBase
     {
         private readonly InterfazRepositorioUsuarios _usuarioRepository;
         private readonly IEmailService _emailService;
         private readonly ILogger<ControladorUsuarios> _logger;
 
+        // Constructor que inicializa los servicios mediante inyección de dependencias
         public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, IEmailService emailService, ILogger<ControladorUsuarios> logger)
         {
             _usuarioRepository = usuarioRepository;
@@ -20,79 +22,87 @@ namespace APIMaterialesESCOM.Controllers
             _logger = logger;
         }
 
-        // GET: api/Usuarios
+        // Obtiene la lista completa de usuarios registrados en el sistema
+        // GET: repositorio/usuarios
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Usuario>>> GetUsuarios()
         {
-        var usuarios = await _usuarioRepository.GetAllUsuarios();
-        return Ok(usuarios);
+            var usuarios = await _usuarioRepository.GetAllUsuarios();
+            return Ok(usuarios);
         }
 
-        // GET: api/Usuarios/
+        // Obtiene la información de un usuario específico por su ID
+        // GET: repositorio/usuarios/{id}
         [HttpGet("{id}")]
         public async Task<ActionResult<Usuario>> GetUsuario(int id)
         {
-        var usuario = await _usuarioRepository.GetUsuarioById(id);
+            var usuario = await _usuarioRepository.GetUsuarioById(id);
 
-        if (usuario == null)
-        {
-        return NotFound();
+            if(usuario == null)
+            {
+                return NotFound();
+            }
+
+            return Ok(usuario);
         }
 
-        return Ok(usuario);
-        }
-
-        // POST: api/Usuarios/signup
+        // Registra un nuevo usuario en el sistema y envía un correo con sus credenciales
+        // POST: repositorio/usuarios/signup
         [HttpPost("signup")]
         public async Task<ActionResult<Usuario>> SignUp(UsuarioSignUp usuarioDto)
         {
+            // Validación del modelo de datos recibido
+            if(!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
 
-        // ModelState se validará automáticamente gracias al atributo [ApiController]
-        if (!ModelState.IsValid)
-        {
-        return BadRequest(ModelState);
-        }
-
-        // Verificar si ya existe un usuario con el mismo email
-        var existingUser = await _usuarioRepository.GetUsuarioByEmail(usuarioDto.Email);
-        if (existingUser != null)
-        {
+            // Verificar si ya existe un usuario con el mismo email
+            var existingUser = await _usuarioRepository.GetUsuarioByEmail(usuarioDto.Email);
+            if(existingUser != null)
+            {
                 return Conflict("Ya existe un usuario con este email");
-        }
+            }
 
-        var userId = await _usuarioRepository.CreateUsuario(usuarioDto);
+            // Crear el nuevo usuario en la base de datos
+            var userId = await _usuarioRepository.CreateUsuario(usuarioDto);
+
+            // Preparar y enviar correo de bienvenida
             string subject = "Acceso a prototipo de Repositorio Digital ESCOM";
             string message = GenerarCorreoAcceso(usuarioDto.Nombre, usuarioDto.ApellidoP, usuarioDto.Email, usuarioDto.Boleta);
 
             await _emailService.SendEmailAsync(usuarioDto.Email, subject, message);
 
+            // Obtener el usuario creado para devolverlo en la respuesta
             var newUser = await _usuarioRepository.GetUsuarioById(userId);
             return CreatedAtAction(nameof(GetUsuario), new { id = userId }, newUser);
         }
 
-
-
-        // POST: api/Usuarios/signin
+        // Autentica a un usuario y envía un correo de confirmación de inicio de sesión
+        // POST: repositorio/usuarios/signin
         [HttpPost("signin")]
         public async Task<ActionResult<Usuario>> SignIn(UsuarioSignIn signinDto)
         {
-        var usuario = await _usuarioRepository.Authenticate(signinDto.Email, signinDto.Boleta);
-        if (usuario == null)
-        {
-        return Unauthorized("Email o boleta incorrectos");
-        }
+            // Verificar credenciales del usuario
+            var usuario = await _usuarioRepository.Authenticate(signinDto.Email, signinDto.Boleta);
+            if(usuario == null)
+            {
+                return Unauthorized("Email o boleta incorrectos");
+            }
 
-            // Enviar el mismo correo de acceso
+            // Enviar correo de confirmación de inicio de sesión
             string subject = "Acceso a prototipo de Repositorio Digital ESCOM";
             string message = GenerarCorreoAcceso(usuario.Nombre, usuario.ApellidoP, usuario.Email, usuario.Boleta);
 
-            // Enviamos el correo de forma asíncrona
+            // Enviamos el correo de forma asíncrona sin esperar su finalización
+            // para no bloquear la respuesta al usuario
             _ = _emailService.SendEmailAsync(usuario.Email, subject, message);
 
             return Ok(usuario);
         }
 
-        // Método auxiliar para generar el mismo formato de correo en ambos casos
+        // Método auxiliar para generar el contenido HTML del correo electrónico
+        // con información personalizada del usuario y un botón de acceso
         private string GenerarCorreoAcceso(string nombre, string apellido, string email, string boleta)
         {
             return $@"
@@ -136,58 +146,64 @@ namespace APIMaterialesESCOM.Controllers
         </html>";
         }
 
-        // PUT: api/Usuarios/5
+        // Actualiza la información de un usuario existente
+        // PUT: repositorio/usuarios/{id}
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateUsuario(int id, UsuarioUpdate usuarioDto)
         {
+            // Validar el modelo recibido
+            if(!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
 
-        if (!ModelState.IsValid)
-        {
-        return BadRequest(ModelState);
-        }
-
-        var usuario = await _usuarioRepository.GetUsuarioById(id);
-        if (usuario == null)
-        {
+            // Verificar que el usuario exista
+            var usuario = await _usuarioRepository.GetUsuarioById(id);
+            if(usuario == null)
+            {
                 return NotFound();
+            }
+
+            // Verificar si se está actualizando el email y si ya existe otro usuario con ese email
+            if(!string.IsNullOrEmpty(usuarioDto.Email) && usuarioDto.Email != usuario.Email)
+            {
+                var existingUser = await _usuarioRepository.GetUsuarioByEmail(usuarioDto.Email);
+                if(existingUser != null)
+                {
+                    return Conflict("Ya existe un usuario con este email");
+                }
+            }
+
+            // Realizar la actualización
+            var result = await _usuarioRepository.UpdateUsuario(id, usuarioDto);
+            if(result)
+            {
+                return NoContent();
+            }
+
+            return BadRequest("Error al actualizar el usuario");
         }
 
-        // Verificar si se está actualizando el email y si ya existe otro usuario con ese email
-        if (!string.IsNullOrEmpty(usuarioDto.Email) && usuarioDto.Email != usuario.Email)
-        {
-        var existingUser = await _usuarioRepository.GetUsuarioByEmail(usuarioDto.Email);
-        if (existingUser != null)
-        {
-        return Conflict("Ya existe un usuario con este email");
-        }
-        }
-
-        var result = await _usuarioRepository.UpdateUsuario(id, usuarioDto);
-        if (result)
-        {
-        return NoContent();
-        }
-
-        return BadRequest("Error al actualizar el usuario");
-        }
-
-        // DELETE: api/Usuarios/5
+        // Elimina un usuario del sistema
+        // DELETE: repositorio/usuarios/{id}
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteUsuario(int id)
         {
-        var usuario = await _usuarioRepository.GetUsuarioById(id);
-        if (usuario == null)
-        {
-        return NotFound();
-        }
+            // Verificar que el usuario exista
+            var usuario = await _usuarioRepository.GetUsuarioById(id);
+            if(usuario == null)
+            {
+                return NotFound();
+            }
 
-        var result = await _usuarioRepository.DeleteUsuario(id);
-        if (result)
-        {
-        return NoContent();
-        }
+            // Realizar la eliminación
+            var result = await _usuarioRepository.DeleteUsuario(id);
+            if(result)
+            {
+                return NoContent();
+            }
 
-        return BadRequest("Error al eliminar el usuario");
+            return BadRequest("Error al eliminar el usuario");
         }
     }
 }
