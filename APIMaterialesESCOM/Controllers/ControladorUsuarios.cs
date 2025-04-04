@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace APIMaterialesESCOM.Controllers
 {
+    
     // Controlador que maneja las operaciones relacionadas con los usuarios del repositorio digital
     [ApiController]
     [Route("repositorio/usuarios")]
@@ -13,13 +14,17 @@ namespace APIMaterialesESCOM.Controllers
         private readonly InterfazRepositorioUsuarios _usuarioRepository;
         private readonly IEmailService _emailService;
         private readonly ILogger<ControladorUsuarios> _logger;
+        private readonly ITokenService _tokenService;
+        private readonly RepositorioTokens _tokenRepository;
 
         // Constructor que inicializa los servicios mediante inyección de dependencias
-        public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, IEmailService emailService, ILogger<ControladorUsuarios> logger)
+        public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, IEmailService emailService, ILogger<ControladorUsuarios> logger, ITokenService tokenService, RepositorioTokens tokenRepository)
         {
             _usuarioRepository = usuarioRepository;
             _emailService = emailService;
             _logger = logger;
+            _tokenService = tokenService;
+            _tokenRepository = tokenRepository;
         }
 
         // Obtiene la lista completa de usuarios registrados en el sistema
@@ -67,6 +72,16 @@ namespace APIMaterialesESCOM.Controllers
             // Crear el nuevo usuario en la base de datos
             var userId = await _usuarioRepository.CreateUsuario(usuarioDto);
 
+            //Generar token de verificación 
+            string token = _tokenService.GenerateToken();
+            DateTime expiracíon = _tokenService.GetExpirationTime();
+
+            //Guardar token en base de datos
+            await _tokenRepository.CreateTokenAsync(userId, token, expiracíon);
+
+            //Url de verificacion
+            string verificacionURL = $"{Request.Scheme}://{Request.Host}/repositorio/usuarios/verify?token={token}";
+
             // Preparar y enviar correo de bienvenida
             string subject = "Acceso a prototipo de Repositorio Digital ESCOM";
             string message = GenerarCorreoAcceso(usuarioDto.Nombre, usuarioDto.ApellidoP, usuarioDto.Email, usuarioDto.Boleta);
@@ -78,9 +93,15 @@ namespace APIMaterialesESCOM.Controllers
             return CreatedAtAction(nameof(GetUsuario), new { id = userId }, newUser);
         }
 
-        // Autentica a un usuario y envía un correo de confirmación de inicio de sesión
-        // POST: repositorio/usuarios/signin
-        [HttpPost("signin")]
+        [HttpGet("verify")]
+        public async Task<IActionResult> VerifyEmail([FromQuery] string token)
+        {
+            return null;
+        }
+
+            // Autentica a un usuario y envía un correo de confirmación de inicio de sesión
+            // POST: repositorio/usuarios/signin
+            [HttpPost("signin")]
         public async Task<ActionResult<Usuario>> SignIn(UsuarioSignIn signinDto)
         {
             // Verificar credenciales del usuario

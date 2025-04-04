@@ -19,7 +19,6 @@ namespace APIMaterialesESCOM.Servicios
         public bool ValidateToken(string token)
         {
             // Implementación básica para validar un token
-            // Aquí podrías agregar lógica adicional si es necesario
             return !string.IsNullOrEmpty(token);
         }
 

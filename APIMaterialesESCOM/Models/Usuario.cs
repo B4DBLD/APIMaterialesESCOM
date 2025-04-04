@@ -1,4 +1,5 @@
-﻿using APIMaterialesESCOM.Validacion;
+﻿using APIMaterialesESCOM.Servicios;
+using APIMaterialesESCOM.Validacion;
 using System.ComponentModel.DataAnnotations;
 
 namespace APIMaterialesESCOM.Models
