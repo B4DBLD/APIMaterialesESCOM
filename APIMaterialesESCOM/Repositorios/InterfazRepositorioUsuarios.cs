@@ -39,5 +39,8 @@ namespace APIMaterialesESCOM.Repositorios
         // Parámetros: email - Correo electrónico del usuario, boleta - Identificación del usuario
         // Retorna: El objeto Usuario si la autenticación es exitosa, null si las credenciales son incorrectas
         Task<Usuario?> Authenticate(string email, string boleta);
+
+        Task<bool> VerificacionEmailAsync(int userId, bool verified);
+        Task<bool> EmailVerificadoAsync(int userId);
     }
 }

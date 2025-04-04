@@ -243,5 +243,33 @@ namespace APIMaterialesESCOM.Repositorios
 
             return null;
         }
+
+        public async Task<bool> VerificacionEmailAsync(int userId, bool verified)
+        {
+            using var connection = new SqliteConnection(_dbConfig.ConnectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE Usuario SET emailVerified = @verified, fechaActualizacion = datetime('now', 'localtime') WHERE id = @id";
+            command.Parameters.AddWithValue("@verified", verified ? 1 : 0);
+            command.Parameters.AddWithValue("@id", userId);
+
+            int rowsAffected = await command.ExecuteNonQueryAsync();
+            return rowsAffected > 0;
+        }
+
+        public async Task<bool> EmailVerificadoAsync(int userId)
+        {
+            using var connection = new SqliteConnection(_dbConfig.ConnectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT emailVerified FROM Usuario WHERE id = @id";
+            command.Parameters.AddWithValue("@id", userId);
+
+            var result = await command.ExecuteScalarAsync();
+
+            return result != null && Convert.ToInt32(result) == 1;
+        }
     }
 }

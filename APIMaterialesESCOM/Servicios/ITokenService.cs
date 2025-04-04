@@ -1,8 +1,10 @@
 ﻿namespace APIMaterialesESCOM.Servicios
 {
-    public class ITokenService
+    public interface ITokenService
     {
         string GenerateToken();
         bool ValidateToken(string token);
+        DateTime GetExpirationTime();
+        bool IsTokenExpired(DateTime expirationTime);
     }
 }

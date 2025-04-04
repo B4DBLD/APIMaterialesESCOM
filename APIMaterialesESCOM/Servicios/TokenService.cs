@@ -16,6 +16,13 @@ namespace APIMaterialesESCOM.Servicios
             return Convert.ToHexString(randomBytes);
         }
 
+        public bool ValidateToken(string token)
+        {
+            // Implementación básica para validar un token
+            // Aquí podrías agregar lógica adicional si es necesario
+            return !string.IsNullOrEmpty(token);
+        }
+
         // Calcula la fecha de expiración (ejemplo: 24 horas desde la creación)
         public DateTime GetExpirationTime()
         {

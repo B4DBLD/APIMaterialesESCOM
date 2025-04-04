@@ -31,6 +31,9 @@ builder.Services.AddOptions();
 builder.Services.AddHttpClient();
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 builder.Services.AddScoped<IEmailService, EmailService>();
+// Añadir en Program.cs donde registras otros servicios
+builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<InterfazRepositorioTokens, RepositorioTokens>();
 
 // Configurar CORS
 builder.Services.AddCors(options =>
