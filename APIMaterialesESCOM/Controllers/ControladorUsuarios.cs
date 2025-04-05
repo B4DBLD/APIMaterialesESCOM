@@ -15,7 +15,7 @@ namespace APIMaterialesESCOM.Controllers
         private readonly IEmailService _emailService;
         private readonly ILogger<ControladorUsuarios> _logger;
         private readonly ITokenService _tokenService;
-        private readonly RepositorioTokens _tokenRepository;
+        private readonly InterfazRepositorioTokens _tokenRepository;
 
         // Constructor que inicializa los servicios mediante inyección de dependencias
         public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, IEmailService emailService, ILogger<ControladorUsuarios> logger, ITokenService tokenService, RepositorioTokens tokenRepository)
@@ -94,9 +94,36 @@ namespace APIMaterialesESCOM.Controllers
         }
 
         [HttpGet("verify")]
-        public async Task<IActionResult> VerifyEmail([FromQuery] string token)
+        public async Task<IActionResult> VerificarEmail([FromQuery] string token)
         {
-            return null;
+            if (string.IsNullOrEmpty(token))
+            {
+                return BadRequest("Token inválido");
+            }
+
+            // Buscar el token en la base de datos
+            var verificationToken = await _tokenRepository.GetTokenAsync(token);
+            if (verificationToken == null)
+            {
+                return NotFound("Token no encontrado o ya utilizado");
+            }
+
+            // Verificar si el token ha expirado
+            if (_tokenService.IsTokenExpired(verificationToken.Expires))
+            {
+                await _tokenRepository.DeleteTokenAsync(token);
+                return BadRequest("El token ha expirado. Solicita un nuevo correo de verificación.");
+            }
+
+            // Actualizar estado de verificación del usuario
+            await _usuarioRepository.VerificacionEmailAsync(verificationToken.UsuarioId, true);
+
+            // Eliminar el token usado
+            await _tokenRepository.DeleteTokenAsync(token);
+
+            // Redireccionar a una página de éxito o mostrar mensaje
+            return Ok("¡Tu cuenta ha sido verificada exitosamente! Ahora puedes iniciar sesión.");
+
         }
 
             // Autentica a un usuario y envía un correo de confirmación de inicio de sesión
@@ -109,6 +136,13 @@ namespace APIMaterialesESCOM.Controllers
             if(usuario == null)
             {
                 return Unauthorized("Email o boleta incorrectos");
+            }
+
+            // Verificar que el email esté verificado
+            bool isVerified = await _usuarioRepository.EmailVerificadoAsync(usuario.Id);
+            if (!isVerified)
+            {
+                return Unauthorized("Tu cuenta no ha sido verificada. Por favor, verifica tu correo electrónico antes de iniciar sesión.");
             }
 
             // Enviar correo de confirmación de inicio de sesión
