@@ -24,7 +24,7 @@ namespace APIMaterialesESCOM.Repositorios
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-               SELECT id, nombre, apellidoP, apellidoM, email, boleta, rol, fechaCreacion, fechaActualizacion 
+               SELECT id, nombre, apellidoP, apellidoM, email, boleta, rol, fechaCreacion, fechaActualizacion, emailVerified 
                FROM Usuario";
 
             using var reader = await command.ExecuteReaderAsync();
@@ -42,7 +42,8 @@ namespace APIMaterialesESCOM.Repositorios
                     Boleta = reader.IsDBNull(5) ? null : reader.GetString(5),
                     Rol = reader.GetString(6),
                     FechaCreacion = reader.GetString(7),
-                    FechaActualizacion = reader.GetString(8)
+                    FechaActualizacion = reader.GetString(8),
+                    VerificacionEmail = reader.GetInt32(5) == 1
                 });
             }
 
@@ -57,7 +58,7 @@ namespace APIMaterialesESCOM.Repositorios
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-               SELECT id, nombre, apellidoP, apellidoM, email, boleta, rol, fechaCreacion, fechaActualizacion 
+               SELECT id, nombre, apellidoP, apellidoM, email, boleta, rol, fechaCreacion, fechaActualizacion, emailVerified
                FROM Usuario 
                WHERE id = @id";
             command.Parameters.AddWithValue("@id", id);
@@ -76,7 +77,8 @@ namespace APIMaterialesESCOM.Repositorios
                     Boleta = reader.IsDBNull(5) ? null : reader.GetString(5),
                     Rol = reader.GetString(6),
                     FechaCreacion = reader.GetString(7),
-                    FechaActualizacion = reader.GetString(8)
+                    FechaActualizacion = reader.GetString(8),
+                    VerificacionEmail = reader.GetInt32(5) == 1
                 };
             }
 
@@ -91,7 +93,7 @@ namespace APIMaterialesESCOM.Repositorios
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-               SELECT id, nombre, apellidoP, apellidoM, email, boleta, rol, fechaCreacion, fechaActualizacion 
+               SELECT id, nombre, apellidoP, apellidoM, email, boleta, rol, fechaCreacion, fechaActualizacion, emailVerified 
                FROM Usuario 
                WHERE email = @email";
             command.Parameters.AddWithValue("@email", email);
@@ -110,7 +112,8 @@ namespace APIMaterialesESCOM.Repositorios
                     Boleta = reader.IsDBNull(5) ? null : reader.GetString(5),
                     Rol = reader.GetString(6),
                     FechaCreacion = reader.GetString(7),
-                    FechaActualizacion = reader.GetString(8)
+                    FechaActualizacion = reader.GetString(8),
+                    VerificacionEmail = reader.GetInt32(5) == 1
                 };
             }
 

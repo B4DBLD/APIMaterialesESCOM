@@ -20,7 +20,7 @@ namespace APIMaterialesESCOM.Repositorios
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-                INSERT INTO VerificationToken (userId, token, expires)
+                INSERT INTO TokenVerificacion (usuarioId, token, expires)
                 VALUES (@userId, @token, @expires);
                 SELECT last_insert_rowid();";
 
@@ -46,8 +46,8 @@ namespace APIMaterialesESCOM.Repositorios
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-                SELECT id, userId, token, expires
-                FROM VerificationToken
+                SELECT id, usuarioId, token, expires
+                FROM TokenVerificacion
                 WHERE token = @token";
 
             command.Parameters.AddWithValue("@token", token);
@@ -74,7 +74,7 @@ namespace APIMaterialesESCOM.Repositorios
             await connection.OpenAsync();
 
             using var command = connection.CreateCommand();
-            command.CommandText = "DELETE FROM VerificationToken WHERE token = @token";
+            command.CommandText = "DELETE FROM TokenVerificacion WHERE token = @token";
             command.Parameters.AddWithValue("@token", token);
 
             int rowsAffected = await command.ExecuteNonQueryAsync();

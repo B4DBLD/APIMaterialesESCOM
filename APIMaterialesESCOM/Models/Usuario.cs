@@ -33,7 +33,7 @@ namespace APIMaterialesESCOM.Models
 
         // Fecha y hora de la última actualización del registro
         public string FechaActualizacion { get; set; } = string.Empty;
-        public bool VerificacionEmail { get; set; } = false;
+        public bool VerificacionEmail { get; set; }
     }
 
     // DTO para operaciones de inicio de sesión

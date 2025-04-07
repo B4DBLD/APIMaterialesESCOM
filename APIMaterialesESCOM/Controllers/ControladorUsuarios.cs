@@ -16,15 +16,17 @@ namespace APIMaterialesESCOM.Controllers
         private readonly ILogger<ControladorUsuarios> _logger;
         private readonly ITokenService _tokenService;
         private readonly InterfazRepositorioTokens _tokenRepository;
+        private readonly InterfazRepositorioLoginTokens _loginTokensRepository;
 
         // Constructor que inicializa los servicios mediante inyección de dependencias
-        public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, IEmailService emailService, ILogger<ControladorUsuarios> logger, ITokenService tokenService, RepositorioTokens tokenRepository)
+        public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, IEmailService emailService, ILogger<ControladorUsuarios> logger, ITokenService tokenService, InterfazRepositorioTokens tokenRepository, InterfazRepositorioLoginTokens loginTokensRepository)
         {
             _usuarioRepository = usuarioRepository;
             _emailService = emailService;
             _logger = logger;
             _tokenService = tokenService;
             _tokenRepository = tokenRepository;
+            _loginTokensRepository = loginTokensRepository;
         }
 
         // Obtiene la lista completa de usuarios registrados en el sistema
@@ -84,7 +86,7 @@ namespace APIMaterialesESCOM.Controllers
 
             // Preparar y enviar correo de bienvenida
             string subject = "Acceso a prototipo de Repositorio Digital ESCOM";
-            string message = GenerarCorreoAcceso(usuarioDto.Nombre, usuarioDto.ApellidoP, usuarioDto.Email, usuarioDto.Boleta);
+            string message = GenerarCorreoVerificacion(usuarioDto.Nombre, usuarioDto.ApellidoP, usuarioDto.Email, usuarioDto.Boleta, verificacionURL);
 
             await _emailService.SendEmailAsync(usuarioDto.Email, subject, message);
 
@@ -116,19 +118,19 @@ namespace APIMaterialesESCOM.Controllers
             }
 
             // Actualizar estado de verificación del usuario
-            await _usuarioRepository.VerificacionEmailAsync(verificationToken.UsuarioId, true);
+            bool resultado = await _usuarioRepository.VerificacionEmailAsync(verificationToken.UsuarioId, true);
 
             // Eliminar el token usado
             await _tokenRepository.DeleteTokenAsync(token);
 
-            // Redireccionar a una página de éxito o mostrar mensaje
-            return Ok("¡Tu cuenta ha sido verificada exitosamente! Ahora puedes iniciar sesión.");
+            // Redirigir al frontend con el resultado
+            return Redirect($"http://localhost:3000/verificacion?status={resultado}");
 
         }
 
-            // Autentica a un usuario y envía un correo de confirmación de inicio de sesión
-            // POST: repositorio/usuarios/signin
-            [HttpPost("signin")]
+        // Autentica a un usuario y envía un correo de confirmación de inicio de sesión
+        // POST: repositorio/usuarios/signin
+        [HttpPost("signin")]
         public async Task<ActionResult<Usuario>> SignIn(UsuarioSignIn signinDto)
         {
             // Verificar credenciales del usuario
@@ -140,25 +142,38 @@ namespace APIMaterialesESCOM.Controllers
 
             // Verificar que el email esté verificado
             bool isVerified = await _usuarioRepository.EmailVerificadoAsync(usuario.Id);
-            if (!isVerified)
+            if(!isVerified)
             {
                 return Unauthorized("Tu cuenta no ha sido verificada. Por favor, verifica tu correo electrónico antes de iniciar sesión.");
             }
 
+            // Elimina intentos previos de inicio de sesión que no fueron completados
+            await _loginTokensRepository.EliminarTokensUsuarioAsync(usuario.Id);
+
+            // Generar nuevo token de autenticación para el inicio de sesión
+            string token = _tokenService.GenerateToken();
+            DateTime expiracion = _tokenService.GetExpirationTimeLogin();
+
+            // Guardar token en base de datos
+            await _loginTokensRepository.CrearTokenAsync(usuario.Id, token, expiracion);
+
+            // Construir URL de autenticación
+            string urlConfirmacion = $"{Request.Scheme}://{Request.Host}/repositorio/usuarios/auth?token={token}";
+
             // Enviar correo de confirmación de inicio de sesión
-            string subject = "Acceso a prototipo de Repositorio Digital ESCOM";
-            string message = GenerarCorreoAcceso(usuario.Nombre, usuario.ApellidoP, usuario.Email, usuario.Boleta);
+            string subject = "Confirmar inicio de sesión - Repositorio Digital ESCOM";
+            string message = GenerarCorreoConfirmar(usuario.Nombre, usuario.ApellidoP, usuario.Email, usuario.Boleta, urlConfirmacion);
 
             // Enviamos el correo de forma asíncrona sin esperar su finalización
             // para no bloquear la respuesta al usuario
-            _ = _emailService.SendEmailAsync(usuario.Email, subject, message);
+            await _emailService.SendEmailAsync(usuario.Email, subject, message);
 
             return Ok(usuario);
         }
 
         // Método auxiliar para generar el contenido HTML del correo electrónico
         // con información personalizada del usuario y un botón de acceso
-        private string GenerarCorreoAcceso(string nombre, string apellido, string email, string boleta)
+        private string GenerarCorreoConfirmar(string nombre, string apellido, string email, string boleta, string ConfirmacionURL = null)
         {
             return $@"
         <html>
@@ -177,9 +192,9 @@ namespace APIMaterialesESCOM.Controllers
         </head>
         <body>
             <div class='container'>
-                <h1>Acceso al prototipo de Repositorio Digital ESCOM</h1>
+                <h1>Confirmar inicio de sesión - Repositorio Digital ESCOM</h1>
                 <p>Hola <strong>{nombre} {apellido}</strong>,</p>
-                <p>Puedes acceder a nuestra plataforma con la siguiente información:</p>
+                <p>Se ha detectado un intento de inicio de sesión en tu cuenta. Para confirmar que eres tú y completar el proceso, por favor haz clic en el siguiente botón:</p>
                 
                 <div class='info'>
                     <p><strong>Email:</strong> {email}</p>
@@ -187,23 +202,66 @@ namespace APIMaterialesESCOM.Controllers
                 </div>
                 
                 <div class='button-container'>
-                    <a href='http://localhost:3000' class='button'>Ir a la página principal</a>
+                    <a href='{ConfirmacionURL}' class='button'>Confirmar inicio de sesión</a>
                 </div>
                 
-                <p>Gracias por utilizar nuestro prototipo de Repositorio Digital ESCOM.</p>
+                <p>Si no intentaste iniciar sesión, puedes ignorar este correo.</p>
                 
                 <div class='footer'>
                     <p>Este es un mensaje automático, por favor no respondas a este correo.</p>
-                    <p>© ESCOM - IPN 2025</p>
+                    <p>© ESCOM - IPN {DateTime.Now.Year}</p>
                 </div>
             </div>
         </body>
         </html>";
         }
 
-        // Actualiza la información de un usuario existente
-        // PUT: repositorio/usuarios/{id}
-        [HttpPut("{id}")]
+        private string GenerarCorreoVerificacion(string nombre, string apellido, string email, string boleta, string verificacionURL)
+        {
+            return $@"
+                 <html>
+        <head>
+            <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
+            h1 {{ color: #2c3e50; }}
+            .info {{ background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px auto; max-width: 400px; text-align: left; }}
+            .button-container {{ text-align: center; margin: 30px 0; }}
+            .button {{ display: inline-block; background-color: #3498db; color: white; padding: 12px 30px; 
+                      text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; }}
+            .footer {{ margin-top: 30px; font-size: 12px; color: #7f8c8d; }}
+            .note {{ margin: 20px auto; max-width: 450px; }}
+        </style>
+        </head>
+        <body>
+            <div class='container'>
+                <h1>Verificación de cuenta - Repositorio Digital ESCOM</h1>
+                <p>Hola <strong>{nombre} {apellido}</strong>,</p>
+                <p>Para completar tu registro y acceder a nuestra plataforma, por favor verifica tu cuenta:</p>
+                
+                <div class='info'>
+                    <p><strong>Email:</strong> {email}</p>
+                    <p><strong>Boleta:</strong> {boleta}</p>
+                </div>
+                
+                <div class='button-container'>
+                    <a href='{verificacionURL}' class='button'>Verificar mi cuenta</a>
+                </div>
+                
+                <p>Gracias por utilizar nuestro prototipo de Repositorio Digital ESCOM.</p>
+                
+                <div class='footer'>
+                    <p>Este es un mensaje automático, por favor no respondas a este correo.</p>
+                    <p>© ESCOM - IPN {DateTime.Now.Year}</p>
+                </div>
+            </div>
+        </body>
+        </html>";
+        }
+
+            // Actualiza la información de un usuario existente
+            // PUT: repositorio/usuarios/{id}
+            [HttpPut("{id}")]
         public async Task<IActionResult> UpdateUsuario(int id, UsuarioUpdate usuarioDto)
         {
             // Validar el modelo recibido
@@ -259,6 +317,42 @@ namespace APIMaterialesESCOM.Controllers
             }
 
             return BadRequest("Error al eliminar el usuario");
+        }
+
+        [HttpGet("auth")]
+        public async Task<IActionResult> AutenticarLogin([FromQuery] string token)
+        {
+            if(string.IsNullOrEmpty(token))
+            {
+                return BadRequest("Token inválido");
+            }
+
+            // Buscar el token en la base de datos
+            var loginToken = await _loginTokensRepository.ObtenerTokenAsync(token);
+            if(loginToken == null)
+            {
+                return NotFound("Token no encontrado o ya utilizado");
+            }
+
+            // Verificar si el token ha expirado
+            if(_tokenService.IsTokenExpired(loginToken.Expires))
+            {
+                await _loginTokensRepository.EliminarTokenAsync(token);
+                return BadRequest("El enlace ha expirado. Por favor, intenta iniciar sesión nuevamente.");
+            }
+
+            // Obtener el usuario
+            var usuario = await _usuarioRepository.GetUsuarioById(loginToken.UsuarioId);
+            if(usuario == null)
+            {
+                return NotFound("Usuario no encontrado");
+            }
+
+            // Eliminar el token usado
+            await _loginTokensRepository.EliminarTokenAsync(token);
+
+            // Redirigir a la página principal
+            return Redirect($"http://localhost:3000/dashboard?userId={usuario.Id}");
         }
     }
 }

@@ -28,6 +28,11 @@ namespace APIMaterialesESCOM.Servicios
             return DateTime.UtcNow.AddHours(24);
         }
 
+        public DateTime GetExpirationTimeLogin()
+        {
+            return DateTime.UtcNow.AddMinutes(15);
+        }
+
         // Valida si un token ha expirado
         public bool IsTokenExpired(DateTime expirationTime)
         {

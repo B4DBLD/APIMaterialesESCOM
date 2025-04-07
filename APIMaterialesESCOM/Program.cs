@@ -34,6 +34,7 @@ builder.Services.AddScoped<IEmailService, EmailService>();
 // Añadir en Program.cs donde registras otros servicios
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<InterfazRepositorioTokens, RepositorioTokens>();
+builder.Services.AddScoped<InterfazRepositorioLoginTokens, RepositorioLoginTokens>();
 
 // Configurar CORS
 builder.Services.AddCors(options =>
@@ -47,7 +48,7 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-app.Urls.Add("http://10.0.0.4:8080");
+//app.Urls.Add("http://10.0.0.4:8080");
 
 // Configurar middleware
 app.UseSwagger();
