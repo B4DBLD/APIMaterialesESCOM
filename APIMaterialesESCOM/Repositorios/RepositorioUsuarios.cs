@@ -43,7 +43,7 @@ namespace APIMaterialesESCOM.Repositorios
                     Rol = reader.GetString(6),
                     FechaCreacion = reader.GetString(7),
                     FechaActualizacion = reader.GetString(8),
-                    VerificacionEmail = reader.GetInt32(5) == 1
+                    VerificacionEmail = reader.GetInt32(9) == 1
                 });
             }
 
@@ -78,7 +78,7 @@ namespace APIMaterialesESCOM.Repositorios
                     Rol = reader.GetString(6),
                     FechaCreacion = reader.GetString(7),
                     FechaActualizacion = reader.GetString(8),
-                    VerificacionEmail = reader.GetInt32(5) == 1
+                    VerificacionEmail = reader.GetInt32(9) == 1
                 };
             }
 
@@ -113,7 +113,7 @@ namespace APIMaterialesESCOM.Repositorios
                     Rol = reader.GetString(6),
                     FechaCreacion = reader.GetString(7),
                     FechaActualizacion = reader.GetString(8),
-                    VerificacionEmail = reader.GetInt32(5) == 1
+                    VerificacionEmail = reader.GetInt32(9) == 1
                 };
             }
 
@@ -129,7 +129,7 @@ namespace APIMaterialesESCOM.Repositorios
             using var command = connection.CreateCommand();
             command.CommandText = @"
                INSERT INTO Usuario (nombre, apellidoP, apellidoM, email, boleta, rol, fechaCreacion, fechaActualizacion)
-               VALUES (@nombre, @apellidoP, @apellidoM, @email, @boleta, 'estudiante', datetime('now', 'localtime'), datetime('now', 'localtime'));
+               VALUES (@nombre, @apellidoP, @apellidoM, @email, @boleta, 'estudiante', datetime('now', 'utc'), datetime('now', 'utc'));
                SELECT last_insert_rowid();";
 
             command.Parameters.AddWithValue("@nombre", usuario.Nombre);
@@ -149,7 +149,7 @@ namespace APIMaterialesESCOM.Repositorios
             await connection.OpenAsync();
 
             // Construir la consulta SQL dinámicamente para actualizar solo los campos proporcionados
-            var sqlBuilder = new StringBuilder("UPDATE Usuario SET fechaActualizacion = datetime('now', 'localtime')");
+            var sqlBuilder = new StringBuilder("UPDATE Usuario SET fechaActualizacion = datetime('now', 'utc')");
 
             if(!string.IsNullOrEmpty(usuario.Nombre))
                 sqlBuilder.Append(", nombre = @nombre");
@@ -220,7 +220,7 @@ namespace APIMaterialesESCOM.Repositorios
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-               SELECT id, nombre, apellidoP, apellidoM, email, boleta, rol, fechaCreacion, fechaActualizacion 
+               SELECT id, nombre, apellidoP, apellidoM, email, boleta, rol, emailVerified 
                FROM Usuario 
                WHERE email = @email AND boleta = @boleta";
             command.Parameters.AddWithValue("@email", email);
@@ -239,8 +239,7 @@ namespace APIMaterialesESCOM.Repositorios
                     Email = reader.GetString(4),
                     Boleta = reader.IsDBNull(5) ? null : reader.GetString(5),
                     Rol = reader.GetString(6),
-                    FechaCreacion = reader.GetString(7),
-                    FechaActualizacion = reader.GetString(8)
+                    VerificacionEmail = reader.GetInt32(7) == 1
                 };
             }
 
@@ -253,7 +252,7 @@ namespace APIMaterialesESCOM.Repositorios
             await connection.OpenAsync();
 
             using var command = connection.CreateCommand();
-            command.CommandText = "UPDATE Usuario SET emailVerified = @verified, fechaActualizacion = datetime('now', 'localtime') WHERE id = @id";
+            command.CommandText = "UPDATE Usuario SET emailVerified = @verified, fechaActualizacion = datetime('now', 'utc') WHERE id = @id";
             command.Parameters.AddWithValue("@verified", verified ? 1 : 0);
             command.Parameters.AddWithValue("@id", userId);
 

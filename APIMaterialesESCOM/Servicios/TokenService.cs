@@ -30,13 +30,13 @@ namespace APIMaterialesESCOM.Servicios
 
         public DateTime GetExpirationTimeLogin()
         {
-            return DateTime.UtcNow.AddMinutes(15);
+            return DateTime.UtcNow.AddDays(30);
         }
 
         // Valida si un token ha expirado
         public bool IsTokenExpired(DateTime expirationTime)
         {
-            return DateTime.UtcNow > expirationTime;
+            return DateTime.Now > expirationTime;
         }
     }
 }

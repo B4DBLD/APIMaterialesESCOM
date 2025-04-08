@@ -1,6 +1,7 @@
 ﻿using APIMaterialesESCOM.Conexion;
 using APIMaterialesESCOM.Models;
 using Microsoft.Data.Sqlite;
+using System.Globalization;
 
 namespace APIMaterialesESCOM.Repositorios
 {
@@ -20,11 +21,11 @@ namespace APIMaterialesESCOM.Repositorios
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-                INSERT INTO LoginToken (userId, token, expires)
-                VALUES (@userId, @token, @expires);
+                INSERT INTO LoginToken (usuarioId, token, expires)
+                VALUES (@usuarioId, @token, @expires);
                 SELECT last_insert_rowid();";
 
-            command.Parameters.AddWithValue("@userId", usuarioId);
+            command.Parameters.AddWithValue("@usuarioId", usuarioId);
             command.Parameters.AddWithValue("@token", token);
             command.Parameters.AddWithValue("@expires", fechaExp.ToString("o"));
 
@@ -36,25 +37,23 @@ namespace APIMaterialesESCOM.Repositorios
                 UsuarioId = usuarioId,
                 Token = token,
                 Expires = fechaExp,
-                Creado = DateTime.Now
+                Creado = DateTime.UtcNow
             };
         }
 
-        public async Task<LoginToken> ObtenerTokenAsync(string token)
+        public async Task<LoginToken> ObtenerTokenAsync(int usuarioId)
         {
             using var connection = new SqliteConnection(_dbConfig.ConnectionString);
             await connection.OpenAsync();
-
             using var command = connection.CreateCommand();
             command.CommandText = @"
-                SELECT id, userId, token, expires, createdAt
+                SELECT id, usuarioId, token, expires, createdAt
                 FROM LoginToken
-                WHERE token = @token";
-
-            command.Parameters.AddWithValue("@token", token);
-
+                WHERE usuarioId = @usuarioId AND expires > datetime('now', 'utc')
+                ORDER BY expires DESC
+                LIMIT 1";
+            command.Parameters.AddWithValue("@usuarioId", usuarioId);
             using var reader = await command.ExecuteReaderAsync();
-
             if(await reader.ReadAsync())
             {
                 return new LoginToken
@@ -66,7 +65,31 @@ namespace APIMaterialesESCOM.Repositorios
                     Creado = DateTime.Parse(reader.GetString(4))
                 };
             }
+            return null;
+        }
 
+        public async Task<LoginToken> ObtenerTokenPorValorAsync(string token)
+        {
+            using var connection = new SqliteConnection(_dbConfig.ConnectionString);
+            await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT id, usuarioId, token, expires, createdAt
+                FROM LoginToken
+                WHERE token = @token AND expires > datetime('now', 'utc')";
+            command.Parameters.AddWithValue("@token", token);
+            using var reader = await command.ExecuteReaderAsync();
+            if(await reader.ReadAsync())
+            {
+                return new LoginToken
+                {
+                    Id = reader.GetInt32(0),
+                    UsuarioId = reader.GetInt32(1),
+                    Token = reader.GetString(2),
+                    Expires = DateTime.Parse(reader.GetString(3)),
+                    Creado = DateTime.Parse(reader.GetString(4))
+                };
+            }
             return null;
         }
 
@@ -89,8 +112,8 @@ namespace APIMaterialesESCOM.Repositorios
             await connection.OpenAsync();
 
             using var command = connection.CreateCommand();
-            command.CommandText = "DELETE FROM LoginToken WHERE userId = @userId";
-            command.Parameters.AddWithValue("@userId", usuarioId);
+            command.CommandText = "DELETE FROM LoginToken WHERE usuarioId = @usuarioId";
+            command.Parameters.AddWithValue("@usuarioId", usuarioId);
 
             int rowsAffected = await command.ExecuteNonQueryAsync();
             return rowsAffected > 0;
@@ -105,9 +128,9 @@ namespace APIMaterialesESCOM.Repositorios
             command.CommandText = @"
                 SELECT COUNT(*)
                 FROM LoginToken
-                WHERE userId = @userId AND expires > @now";
+                WHERE userId = @usuarioId AND expires > @now";
 
-            command.Parameters.AddWithValue("@userId", usuarioId);
+            command.Parameters.AddWithValue("@usuarioId", usuarioId);
             command.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("o"));
 
             int count = Convert.ToInt32(await command.ExecuteScalarAsync());

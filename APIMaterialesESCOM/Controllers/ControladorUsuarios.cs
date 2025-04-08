@@ -147,27 +147,39 @@ namespace APIMaterialesESCOM.Controllers
                 return Unauthorized("Tu cuenta no ha sido verificada. Por favor, verifica tu correo electrónico antes de iniciar sesión.");
             }
 
-            // Elimina intentos previos de inicio de sesión que no fueron completados
-            await _loginTokensRepository.EliminarTokensUsuarioAsync(usuario.Id);
+            // Buscar si existe un token vigente para este usuario
+            var tokenVigente = await _loginTokensRepository.ObtenerTokenAsync(usuario.Id);
 
-            // Generar nuevo token de autenticación para el inicio de sesión
-            string token = _tokenService.GenerateToken();
+
+            //Si hay un token vigente, permitir inicio de sesión directo
+            if(tokenVigente != null)
+            {
+                return Redirect($"http://localhost:3000/dashboard?userId={usuario.Id}");
+            }
+
+            // Si no hay token vigente, generar nuevo token y enviar correo
+            string nuevoToken = _tokenService.GenerateToken();
             DateTime expiracion = _tokenService.GetExpirationTimeLogin();
 
-            // Guardar token en base de datos
-            await _loginTokensRepository.CrearTokenAsync(usuario.Id, token, expiracion);
+            // Guardar nuevo token en base de datos
+            await _loginTokensRepository.CrearTokenAsync(usuario.Id, nuevoToken, expiracion);
 
             // Construir URL de autenticación
-            string urlConfirmacion = $"{Request.Scheme}://{Request.Host}/repositorio/usuarios/auth?token={token}";
+            string urlAutenticacion = $"{Request.Scheme}://{Request.Host}/repositorio/usuarios/auth?token={nuevoToken}&userId={usuario.Id}";
 
             // Enviar correo de confirmación de inicio de sesión
             string subject = "Confirmar inicio de sesión - Repositorio Digital ESCOM";
-            string message = GenerarCorreoConfirmar(usuario.Nombre, usuario.ApellidoP, usuario.Email, usuario.Boleta, urlConfirmacion);
+            string message = GenerarCorreoConfirmar(
+                usuario.Nombre,
+                usuario.ApellidoP,
+                usuario.Email,
+                usuario.Boleta,
+                urlAutenticacion
+            );
 
-            // Enviamos el correo de forma asíncrona sin esperar su finalización
-            // para no bloquear la respuesta al usuario
             await _emailService.SendEmailAsync(usuario.Email, subject, message);
 
+            // Devolver que se requiere verificación por correo
             return Ok(usuario);
         }
 
@@ -319,8 +331,31 @@ namespace APIMaterialesESCOM.Controllers
             return BadRequest("Error al eliminar el usuario");
         }
 
+        [HttpGet("token/{id}")]
+        public async Task<ActionResult<string>> ObtenerTokenUsuario(int id)
+        {
+            // Validar que el usuario exista
+            var usuario = await _usuarioRepository.GetUsuarioById(id);
+            if(usuario == null)
+            {
+                return NotFound("Usuario no encontrado");
+            }
+
+            // Buscar token vigente para el usuario
+            var tokenVigente = await _loginTokensRepository.ObtenerTokenAsync(id);
+
+            // Si no hay token vigente, devolver NotFound
+            if(tokenVigente == null)
+            {
+                return NotFound("No hay token vigente para este usuario");
+            }
+
+            // Devolver el token vigente
+            return Ok(new { token = tokenVigente });
+        }
+
         [HttpGet("auth")]
-        public async Task<IActionResult> AutenticarLogin([FromQuery] string token)
+        public async Task<IActionResult> AutenticarLogin([FromQuery] string token, [FromQuery] int userId)
         {
             if(string.IsNullOrEmpty(token))
             {
@@ -328,31 +363,28 @@ namespace APIMaterialesESCOM.Controllers
             }
 
             // Buscar el token en la base de datos
-            var loginToken = await _loginTokensRepository.ObtenerTokenAsync(token);
+            var loginToken = await _loginTokensRepository.ObtenerTokenPorValorAsync(token);
             if(loginToken == null)
             {
-                return NotFound("Token no encontrado o ya utilizado");
+                return NotFound("Token no encontrado o ya expirado");
             }
 
-            // Verificar si el token ha expirado
-            if(_tokenService.IsTokenExpired(loginToken.Expires))
+            // Verificar que el token pertenezca al usuario correcto
+            if(loginToken.UsuarioId != userId)
             {
-                await _loginTokensRepository.EliminarTokenAsync(token);
-                return BadRequest("El enlace ha expirado. Por favor, intenta iniciar sesión nuevamente.");
+                return Unauthorized("El token no corresponde a este usuario");
             }
 
             // Obtener el usuario
-            var usuario = await _usuarioRepository.GetUsuarioById(loginToken.UsuarioId);
+            var usuario = await _usuarioRepository.GetUsuarioById(userId);
             if(usuario == null)
             {
                 return NotFound("Usuario no encontrado");
             }
 
-            // Eliminar el token usado
-            await _loginTokensRepository.EliminarTokenAsync(token);
-
             // Redirigir a la página principal
             return Redirect($"http://localhost:3000/dashboard?userId={usuario.Id}");
         }
+
     }
 }

@@ -8,7 +8,9 @@ namespace APIMaterialesESCOM.Repositorios
         Task<LoginToken> CrearTokenAsync(int usuarioId, string token, DateTime fechaExpiracion);
 
         // Busca un token por su valor
-        Task<LoginToken> ObtenerTokenAsync(string token);
+        Task<LoginToken> ObtenerTokenAsync(int usuario);
+
+        Task<LoginToken> ObtenerTokenPorValorAsync(string token);
 
         // Elimina un token específico
         Task<bool> EliminarTokenAsync(string token);
