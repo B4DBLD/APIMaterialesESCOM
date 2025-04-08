@@ -5,7 +5,7 @@
         string GenerateToken();
         bool ValidateToken(string token);
         DateTime GetExpirationTime();
-        DateTime GetExpirationTimeLogin();
+        DateTime GetExpirationJWT();
         bool IsTokenExpired(DateTime expirationTime);
     }
 }

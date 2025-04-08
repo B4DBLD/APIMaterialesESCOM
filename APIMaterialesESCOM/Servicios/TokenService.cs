@@ -25,10 +25,10 @@ namespace APIMaterialesESCOM.Servicios
         // Calcula la fecha de expiración (ejemplo: 24 horas desde la creación)
         public DateTime GetExpirationTime()
         {
-            return DateTime.UtcNow.AddHours(24);
+            return DateTime.UtcNow.AddHours(1);
         }
 
-        public DateTime GetExpirationTimeLogin()
+        public DateTime GetExpirationJWT()
         {
             return DateTime.UtcNow.AddDays(30);
         }

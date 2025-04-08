@@ -23,7 +23,7 @@ namespace APIMaterialesESCOM.Models
         public string Email { get; set; } = string.Empty;
 
         // Número de boleta o identificación escolar (puede ser nulo)
-        public string? Boleta { get; set; }
+        public string? Boleta { get; set; } = string.Empty;
 
         // Rol del usuario en el sistema (estudiante, profesor, administrador)
         public string Rol { get; set; } = string.Empty;
