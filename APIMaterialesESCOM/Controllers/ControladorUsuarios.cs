@@ -2,6 +2,10 @@
 using APIMaterialesESCOM.Repositorios;
 using APIMaterialesESCOM.Servicios;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 
 namespace APIMaterialesESCOM.Controllers
 {
@@ -11,6 +15,7 @@ namespace APIMaterialesESCOM.Controllers
     [Route("repositorio/usuarios")]
     public class ControladorUsuarios : ControllerBase
     {
+        private readonly IConfiguration _configuration;
         private readonly InterfazRepositorioUsuarios _usuarioRepository;
         private readonly IEmailService _emailService;
         private readonly ILogger<ControladorUsuarios> _logger;
@@ -19,7 +24,7 @@ namespace APIMaterialesESCOM.Controllers
         private readonly InterfazRepositorioLoginTokens _loginTokensRepository;
 
         // Constructor que inicializa los servicios mediante inyección de dependencias
-        public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, IEmailService emailService, ILogger<ControladorUsuarios> logger, ITokenService tokenService, InterfazRepositorioTokens tokenRepository, InterfazRepositorioLoginTokens loginTokensRepository)
+        public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, IEmailService emailService, ILogger<ControladorUsuarios> logger, ITokenService tokenService, InterfazRepositorioTokens tokenRepository, InterfazRepositorioLoginTokens loginTokensRepository, IConfiguration configuration)
         {
             _usuarioRepository = usuarioRepository;
             _emailService = emailService;
@@ -27,6 +32,7 @@ namespace APIMaterialesESCOM.Controllers
             _tokenService = tokenService;
             _tokenRepository = tokenRepository;
             _loginTokensRepository = loginTokensRepository;
+            _configuration = configuration;
         }
 
         // Obtiene la lista completa de usuarios registrados en el sistema
@@ -124,7 +130,7 @@ namespace APIMaterialesESCOM.Controllers
             await _tokenRepository.DeleteTokenAsync(token);
 
             // Redirigir al frontend con el resultado
-            return Redirect($"http://localhost:3000/verificacion?status={resultado}");
+            return Redirect($"http://localhost:3000/");
 
         }
 
@@ -134,10 +140,10 @@ namespace APIMaterialesESCOM.Controllers
         public async Task<ActionResult<Usuario>> SignIn(UsuarioSignIn signinDto)
         {
             // Verificar credenciales del usuario
-            var usuario = await _usuarioRepository.Authenticate(signinDto.Email, signinDto.Boleta);
+            var usuario = await _usuarioRepository.Authenticate(signinDto.Email);
             if(usuario == null)
             {
-                return Unauthorized("Email o boleta incorrectos");
+                return Unauthorized("Email incorrecto");
             }
 
             // Verificar que el email esté verificado
@@ -150,11 +156,22 @@ namespace APIMaterialesESCOM.Controllers
             // Buscar si existe un token vigente para este usuario
             var tokenVigente = await _loginTokensRepository.ObtenerTokenAsync(usuario.Id);
 
+            // Convertir DateTime a timestamp (segundos desde epoch)
+            long expiresAtTimestamp = new DateTimeOffset(tokenVigente.Expires).ToUnixTimeSeconds();
+
 
             //Si hay un token vigente, permitir inicio de sesión directo
             if(tokenVigente != null)
             {
-                return Redirect($"http://localhost:3000/dashboard?userId={usuario.Id}");
+                var accessToken = GenerateJwtToken(usuario, tokenVigente.Expires);
+
+                return Ok(new
+                {
+                    accessToken = accessToken,
+                    expiresAt = expiresAtTimestamp,
+                    Redirect($"http://localhost:3000/")
+            });
+                //return Redirect($"http://localhost:3000/");
             }
 
             // Si no hay token vigente, generar nuevo token y enviar correo
@@ -179,9 +196,44 @@ namespace APIMaterialesESCOM.Controllers
 
             await _emailService.SendEmailAsync(usuario.Email, subject, message);
 
+            var jwt = GenerateJwtToken(usuario, expiracion);
+
             // Devolver que se requiere verificación por correo
-            return Ok(usuario);
+            return Ok(new
+            {
+                accessToken = jwt,
+                expiresAt = expiresAtTimestamp
+
+            });
         }
+
+        private string GenerateJwtToken(Usuario usuario, DateTime expiracion)
+        {
+            var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
+            var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+
+            var claims = new[]
+            {
+                new Claim(JwtRegisteredClaimNames.Sub, usuario.Id.ToString()),
+                new Claim(JwtRegisteredClaimNames.Email, usuario.Email),
+                new Claim("nombre", usuario.Nombre),
+                new Claim("apellido", usuario.ApellidoP),
+                new Claim("boleta", usuario.Boleta),
+                new Claim("rol", usuario.Rol),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            };
+
+            var token = new JwtSecurityToken(
+                issuer: _configuration["Jwt:Issuer"],
+                audience: _configuration["Jwt:Audience"],
+                claims: claims,
+                expires: expiracion,
+                signingCredentials: credentials
+            );
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
 
         // Método auxiliar para generar el contenido HTML del correo electrónico
         // con información personalizada del usuario y un botón de acceso
@@ -383,7 +435,7 @@ namespace APIMaterialesESCOM.Controllers
             }
 
             // Redirigir a la página principal
-            return Redirect($"http://localhost:3000/dashboard?userId={usuario.Id}");
+            return Redirect($"http://localhost:3000/");
         }
 
     }

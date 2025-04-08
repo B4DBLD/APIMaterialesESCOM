@@ -213,7 +213,7 @@ namespace APIMaterialesESCOM.Repositorios
         }
 
         // Autentica a un usuario utilizando email y boleta
-        public async Task<Usuario?> Authenticate(string email, string boleta)
+        public async Task<Usuario?> Authenticate(string email)
         {
             using var connection = new SqliteConnection(_dbConfig.ConnectionString);
             await connection.OpenAsync();
@@ -222,9 +222,8 @@ namespace APIMaterialesESCOM.Repositorios
             command.CommandText = @"
                SELECT id, nombre, apellidoP, apellidoM, email, boleta, rol, emailVerified 
                FROM Usuario 
-               WHERE email = @email AND boleta = @boleta";
+               WHERE email = @email";
             command.Parameters.AddWithValue("@email", email);
-            command.Parameters.AddWithValue("@boleta", boleta);
 
             using var reader = await command.ExecuteReaderAsync();
 

@@ -41,9 +41,6 @@ namespace APIMaterialesESCOM.Models
     {
         // Correo electrónico para autenticación
         public string Email { get; set; } = string.Empty;
-
-        // Boleta o identificación como contraseña
-        public string Boleta { get; set; } = string.Empty;
     }
 
     // DTO para operaciones de registro de usuarios
