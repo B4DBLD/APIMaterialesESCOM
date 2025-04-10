@@ -72,7 +72,52 @@ namespace APIMaterialesESCOM.Controllers
             var existingUser = await _usuarioRepository.GetUsuarioByEmail(usuarioDto.Email);
             if(existingUser != null)
             {
-                return Conflict("Ya existe un usuario con este email");
+                // Verificar si el email ya está verificado
+                bool isVerified = await _usuarioRepository.EmailVerificadoAsync(existingUser.Id);
+
+                if(isVerified)
+                {
+                    // Si el email ya está verificado, devolver conflicto
+                    return Conflict("Ya existe un usuario con este email");
+                }
+                else
+                {
+                    // Si el email no está verificado, enviar nuevo código
+
+                    // Eliminar cualquier código previo
+                    await _codeRepository.EliminaCodigoUsuarioAsync(existingUser.Id);
+
+                    // Generar nuevo código numérico
+                    string recodigo = _codeService.GenerarCodigo();
+                    DateTime expiracion = _codeService.TiempoExpiracion();
+
+                    // Guardar código en base de datos
+                    await _codeRepository.CrearCodigoAsync(existingUser.Id, recodigo, expiracion);
+
+                    // Formatear código para el correo
+                    string codigoFormateado = recodigo.Length == 6
+                        ? $"{recodigo.Substring(0, 3)}-{recodigo.Substring(3, 3)}"
+                        : recodigo;
+
+                    // Preparar y enviar correo con código
+                    string resubject = "Acceso a prototipo de Repositorio Digital ESCOM";
+                    string remessage = GenerarCorreoVerificacion(
+                        existingUser.Nombre,
+                        existingUser.ApellidoP,
+                        existingUser.Email,
+                        existingUser.Boleta,
+                        codigoFormateado
+                    );
+
+                    await _emailService.SendEmailAsync(existingUser.Email, resubject, remessage);
+
+                    // Retornar respuesta exitosa
+                    return Ok(new
+                    {
+                        mensaje = "Se ha reenviado un código de verificación a tu correo electrónico",
+                        usuarioId = existingUser.Id
+                    });
+                }
             }
 
             // Crear el nuevo usuario en la base de datos
@@ -100,7 +145,10 @@ namespace APIMaterialesESCOM.Controllers
             await _emailService.SendEmailAsync(usuarioDto.Email, subject, message);
 
             // Obtener el usuario creado para devolverlo en la respuesta
-            return Ok();
+            return Ok(new {
+                mensaje = "Se ha enviado un código de verificación a tu correo electrónico",
+                usuarioID =  userId 
+            });
         }
 
         // Autentica a un usuario y envía un correo de confirmación de inicio de sesión
@@ -152,7 +200,9 @@ namespace APIMaterialesESCOM.Controllers
             long expirationTimestamp = new DateTimeOffset(jwtExpiracion).ToUnixTimeSeconds();
 
             // Devolver que se requiere verificación por correo
-            return Ok();
+            return Ok(new { 
+                usuarioID = usuario.Id 
+            });
         }
 
         private string GenerateJwtToken(Usuario usuario, DateTime expiracion)
