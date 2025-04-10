@@ -19,19 +19,17 @@ namespace APIMaterialesESCOM.Controllers
         private readonly InterfazRepositorioUsuarios _usuarioRepository;
         private readonly IEmailService _emailService;
         private readonly ILogger<ControladorUsuarios> _logger;
-        private readonly ITokenService _tokenService;
-        private readonly InterfazRepositorioTokens _tokenRepository;
-        private readonly InterfazRepositorioLoginTokens _loginTokensRepository;
+        private readonly ICodeService _codeService;
+        private readonly InterfazRepositorioCodigos _codeRepository;
 
         // Constructor que inicializa los servicios mediante inyección de dependencias
-        public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, IEmailService emailService, ILogger<ControladorUsuarios> logger, ITokenService tokenService, InterfazRepositorioTokens tokenRepository, InterfazRepositorioLoginTokens loginTokensRepository, IConfiguration configuration)
+        public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, IEmailService emailService, ILogger<ControladorUsuarios> logger, ICodeService tokenService, InterfazRepositorioCodigos tokenRepository, IConfiguration configuration)
         {
             _usuarioRepository = usuarioRepository;
             _emailService = emailService;
             _logger = logger;
-            _tokenService = tokenService;
-            _tokenRepository = tokenRepository;
-            _loginTokensRepository = loginTokensRepository;
+            _codeService = tokenService;
+            _codeRepository = tokenRepository;
             _configuration = configuration;
         }
 
@@ -80,58 +78,29 @@ namespace APIMaterialesESCOM.Controllers
             // Crear el nuevo usuario en la base de datos
             var userId = await _usuarioRepository.CreateUsuario(usuarioDto);
 
-            //Generar token de verificación 
-            string token = _tokenService.GenerateToken();
-            DateTime expiracíon = _tokenService.GetExpirationTime();
+            await _codeRepository.EliminaCodigoUsuarioAsync(userId);
+
+            //Generar el código de verificación 
+            string codigo = _codeService.GenerarCodigo();
+            DateTime expiracíon = _codeService.TiempoExpiracion();
 
             //Guardar token en base de datos
-            await _tokenRepository.CreateTokenAsync(userId, token, expiracíon);
+            await _codeRepository.CrearCodigoAsync(userId, codigo, expiracíon);
 
-            //Url de verificacion
-            string verificacionURL = $"{Request.Scheme}://{Request.Host}/repositorio/usuarios/verify?token={token}";
-
-            // Preparar y enviar correo de bienvenida
+            // Preparar y enviar correo con código
             string subject = "Acceso a prototipo de Repositorio Digital ESCOM";
-            string message = GenerarCorreoVerificacion(usuarioDto.Nombre, usuarioDto.ApellidoP, usuarioDto.Email, usuarioDto.Boleta, verificacionURL);
+            string message = GenerarCorreoVerificacion(
+                usuarioDto.Nombre, 
+                usuarioDto.ApellidoP, 
+                usuarioDto.Email, 
+                usuarioDto.Boleta, 
+                codigo
+            );
 
             await _emailService.SendEmailAsync(usuarioDto.Email, subject, message);
 
             // Obtener el usuario creado para devolverlo en la respuesta
-            var newUser = await _usuarioRepository.GetUsuarioById(userId);
-            return CreatedAtAction(nameof(GetUsuario), new { id = userId }, newUser);
-        }
-
-        [HttpGet("verify")]
-        public async Task<IActionResult> VerificarEmail([FromQuery] string token)
-        {
-            if (string.IsNullOrEmpty(token))
-            {
-                return BadRequest("Token inválido");
-            }
-
-            // Buscar el token en la base de datos
-            var verificationToken = await _tokenRepository.GetTokenAsync(token);
-            if (verificationToken == null)
-            {
-                return NotFound("Token no encontrado o ya utilizado");
-            }
-
-            // Verificar si el token ha expirado
-            if (_tokenService.IsTokenExpired(verificationToken.Expires))
-            {
-                await _tokenRepository.DeleteTokenAsync(token);
-                return BadRequest("El token ha expirado. Solicita un nuevo correo de verificación.");
-            }
-
-            // Actualizar estado de verificación del usuario
-            bool resultado = await _usuarioRepository.VerificacionEmailAsync(verificationToken.UsuarioId, true);
-
-            // Eliminar el token usado
-            await _tokenRepository.DeleteTokenAsync(token);
-
-            // Redirigir al frontend con el resultado
-            return Redirect($"http://localhost:3000/");
-
+            return Ok();
         }
 
         // Autentica a un usuario y envía un correo de confirmación de inicio de sesión
@@ -153,15 +122,15 @@ namespace APIMaterialesESCOM.Controllers
                 return Unauthorized("Tu cuenta no ha sido verificada. Por favor, verifica tu correo electrónico antes de iniciar sesión.");
             }
 
+            await _codeRepository.EliminaCodigoUsuarioAsync(usuario.Id);
+
             // Generar token para autenticación por correo
-            string token = _tokenService.GenerateToken();
-            DateTime expiracion = _tokenService.GetExpirationTime(); // Usa la expiración estándar
+            string codigo = _codeService.GenerarCodigo();
+            DateTime expiracion = _codeService.TiempoExpiracion(); // Usa la expiración estándar
 
             // Guardar nuevo token en base de datos
-            await _tokenRepository.CreateTokenAsync(usuario.Id, token, expiracion);
-
-            // Construir URL de autenticación
-            string urlAutenticacion = $"{Request.Scheme}://{Request.Host}/repositorio/usuarios/auth?token={token}&userId={usuario.Id}";
+            await _codeRepository.CrearCodigoAsync(usuario.Id, codigo, expiracion);
+           
 
             // Enviar correo de confirmación de inicio de sesión
             string subject = "Confirmar inicio de sesión - Repositorio Digital ESCOM";
@@ -170,25 +139,20 @@ namespace APIMaterialesESCOM.Controllers
                 usuario.ApellidoP,
                 usuario.Email,
                 usuario.Boleta,
-                urlAutenticacion
+                codigo
             );
 
             await _emailService.SendEmailAsync(usuario.Email, subject, message);
 
 
-            DateTime jwtExpiracion = _tokenService.GetExpirationJWT();
+            DateTime jwtExpiracion = _codeService.TiempoExpiracionJWT();
             string jwt = GenerateJwtToken(usuario, jwtExpiracion);
 
             // Convertir a timestamp (segundos desde epoch)
             long expirationTimestamp = new DateTimeOffset(jwtExpiracion).ToUnixTimeSeconds();
 
             // Devolver que se requiere verificación por correo
-            return Ok(new
-            {
-                accessToken = jwt,
-                expiresAt = expirationTimestamp
-
-            });
+            return Ok();
         }
 
         private string GenerateJwtToken(Usuario usuario, DateTime expiracion)
@@ -221,95 +185,97 @@ namespace APIMaterialesESCOM.Controllers
 
         // Método auxiliar para generar el contenido HTML del correo electrónico
         // con información personalizada del usuario y un botón de acceso
-        private string GenerarCorreoConfirmar(string nombre, string apellido, string email, string boleta, string ConfirmacionURL = null)
+        private string GenerarCorreoConfirmar(string nombre, string apellido, string email, string boleta, string codigo)
         {
+            // Formatear el código como XXX-XXX
+            string codigoFormateado = codigo.Length == 6
+                ? $"{codigo.Substring(0, 3)}-{codigo.Substring(3, 3)}"
+                : codigo;
+
             return $@"
-        <html>
-        <head>
-            <style>
-            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
-            h1 {{ color: #2c3e50; }}
-            .info {{ background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px auto; max-width: 400px; text-align: left; }}
-            .button-container {{ text-align: center; margin: 30px 0; }}
-            .button {{ display: inline-block; background-color: #3498db; color: white; padding: 12px 30px; 
-                      text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; }}
-            .footer {{ margin-top: 30px; font-size: 12px; color: #7f8c8d; }}
-            .note {{ margin: 20px auto; max-width: 450px; }}
-        </style>
-        </head>
-        <body>
-            <div class='container'>
-                <h1>Confirmar inicio de sesión - Repositorio Digital ESCOM</h1>
-                <p>Hola <strong>{nombre} {apellido}</strong>,</p>
-                <p>Se ha detectado un intento de inicio de sesión en tu cuenta. Para confirmar que eres tú y completar el proceso, por favor haz clic en el siguiente botón:</p>
-                
-                <div class='info'>
-                    <p><strong>Email:</strong> {email}</p>
-                    <p><strong>Boleta:</strong> {boleta}</p>
-                </div>
-                
-                <div class='button-container'>
-                    <a href='{ConfirmacionURL}' class='button'>Confirmar inicio de sesión</a>
-                </div>
-                
-                <p>Si no intentaste iniciar sesión, puedes ignorar este correo.</p>
-                
-                <div class='footer'>
-                    <p>Este es un mensaje automático, por favor no respondas a este correo.</p>
-                    <p>© ESCOM - IPN {DateTime.Now.Year}</p>
-                </div>
-            </div>
-        </body>
-        </html>";
+                <html>
+                <head>
+                    <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
+                    h1 {{ color: #2c3e50; }}
+                    .info {{ background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px auto; max-width: 400px; text-align: left; }}
+                    .code {{ font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #3498db; display: block; margin: 30px 0; }}
+                    .footer {{ margin-top: 30px; font-size: 12px; color: #7f8c8d; }}
+                    </style>
+                </head>
+                <body>
+                    <div class='container'>
+                        <h1>Confirmar inicio de sesión - Repositorio Digital ESCOM</h1>
+                        <p>Hola <strong>{nombre} {apellido}</strong>,</p>
+                        <p>Se ha detectado un intento de inicio de sesión en tu cuenta. Para confirmar que eres tú, utiliza el siguiente código:</p>
+                        
+                        <div class='info'>
+                            <p><strong>Email:</strong> {email}</p>
+                            <p><strong>Boleta:</strong> {boleta}</p>
+                        </div>
+                        
+                        <span class='code'>{codigoFormateado}</span>
+                        
+                        <p>Ingresa este código en la página de inicio de sesión para completar el proceso.</p>
+                        <p>Este código expirará en 1 hora.</p>
+                        
+                        <div class='footer'>
+                            <p>Este es un mensaje automático, por favor no respondas a este correo.</p>
+                            <p>© ESCOM - IPN {DateTime.UtcNow.Year}</p>
+                        </div>
+                    </div>
+                </body>
+                </html>";
         }
 
-        private string GenerarCorreoVerificacion(string nombre, string apellido, string email, string boleta, string verificacionURL)
+        private string GenerarCorreoVerificacion(string nombre, string apellido, string email, string boleta, string codigo)
         {
+            // Formatear el código como XXX-XXX
+            string codigoFormateado = codigo.Length == 6
+                ? $"{codigo.Substring(0, 3)}-{codigo.Substring(3, 3)}"
+                : codigo;
+
             return $@"
-                 <html>
-        <head>
-            <style>
-            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
-            h1 {{ color: #2c3e50; }}
-            .info {{ background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px auto; max-width: 400px; text-align: left; }}
-            .button-container {{ text-align: center; margin: 30px 0; }}
-            .button {{ display: inline-block; background-color: #3498db; color: white; padding: 12px 30px; 
-                      text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; }}
-            .footer {{ margin-top: 30px; font-size: 12px; color: #7f8c8d; }}
-            .note {{ margin: 20px auto; max-width: 450px; }}
-        </style>
-        </head>
-        <body>
-            <div class='container'>
-                <h1>Verificación de cuenta - Repositorio Digital ESCOM</h1>
-                <p>Hola <strong>{nombre} {apellido}</strong>,</p>
-                <p>Para completar tu registro y acceder a nuestra plataforma, por favor verifica tu cuenta:</p>
-                
-                <div class='info'>
-                    <p><strong>Email:</strong> {email}</p>
-                    <p><strong>Boleta:</strong> {boleta}</p>
-                </div>
-                
-                <div class='button-container'>
-                    <a href='{verificacionURL}' class='button'>Verificar mi cuenta</a>
-                </div>
-                
-                <p>Gracias por utilizar nuestro prototipo de Repositorio Digital ESCOM.</p>
-                
-                <div class='footer'>
-                    <p>Este es un mensaje automático, por favor no respondas a este correo.</p>
-                    <p>© ESCOM - IPN {DateTime.Now.Year}</p>
-                </div>
-            </div>
-        </body>
-        </html>";
+                <html>
+                <head>
+                    <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
+                    h1 {{ color: #2c3e50; }}
+                    .info {{ background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px auto; max-width: 400px; text-align: left; }}
+                    .code {{ font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #3498db; display: block; margin: 30px 0; }}
+                    .footer {{ margin-top: 30px; font-size: 12px; color: #7f8c8d; }}
+                    </style>
+                </head>
+                <body>
+                    <div class='container'>
+                        <h1>Verificación de cuenta - Repositorio Digital ESCOM</h1>
+                        <p>Hola <strong>{nombre} {apellido}</strong>,</p>
+                        <p>Para completar tu registro, utiliza el siguiente código de verificación:</p>
+                        
+                        <div class='info'>
+                            <p><strong>Email:</strong> {email}</p>
+                            <p><strong>Boleta:</strong> {boleta}</p>
+                        </div>
+                        
+                        <span class='code'>{codigoFormateado}</span>
+                        
+                        <p>Ingresa este código en la página de verificación para activar tu cuenta.</p>
+                        <p>Este código expirará en 1 hora.</p>
+                        
+                        <div class='footer'>
+                            <p>Este es un mensaje automático, por favor no respondas a este correo.</p>
+                            <p>© ESCOM - IPN {DateTime.Now.Year}</p>
+                        </div>
+                    </div>
+                </body>
+                </html>";
         }
 
-            // Actualiza la información de un usuario existente
-            // PUT: repositorio/usuarios/{id}
-            [HttpPut("{id}")]
+        // Actualiza la información de un usuario existente
+        // PUT: repositorio/usuarios/{id}
+        [HttpPut("{id}")]
         public async Task<IActionResult> UpdateUsuario(int id, UsuarioUpdate usuarioDto)
         {
             // Validar el modelo recibido
@@ -367,46 +333,65 @@ namespace APIMaterialesESCOM.Controllers
             return BadRequest("Error al eliminar el usuario");
         }
 
-        [HttpGet("auth")]
-        public async Task<IActionResult> AutenticarLogin([FromQuery] string token, [FromQuery] int userId)
+        [HttpPost("verifyCode")]
+        public async Task<IActionResult> VerificarEmail([FromBody] VerificacionCodigo verificacion)
         {
-            if(string.IsNullOrEmpty(token))
+            if(string.IsNullOrEmpty(verificacion.Codigo) || verificacion.UsuarioId <= 0)
             {
-                return BadRequest("Token inválido");
-            }
-
-            // Buscar el token en la base de datos
-            var loginToken = await _tokenRepository.GetTokenAsync(token);
-            if(loginToken == null)
-            {
-                return NotFound("Token no encontrado");
-            }
-
-            // Verificar que el token pertenezca al usuario correcto
-            if(loginToken.UsuarioId != userId)
-            {
-                return Unauthorized("El token no corresponde a este usuario");
-            }
-
-            // Verificar si el token ha expirado
-            if (_tokenService.IsTokenExpired(loginToken.Expires))
-            {
-                await _tokenRepository.DeleteTokenAsync(token);
-                return BadRequest("El token ha expirado. Solicita un nuevo correo de verificación.");
+                return BadRequest("Código inválido o usuario no especificado");
             }
 
             // Obtener el usuario
-            var usuario = await _usuarioRepository.GetUsuarioById(userId);
+            var usuario = await _usuarioRepository.GetUsuarioById(verificacion.UsuarioId);
             if(usuario == null)
             {
                 return NotFound("Usuario no encontrado");
             }
 
-            // Eliminar el token después de usarlo
-            await _tokenRepository.DeleteTokenAsync(token);
+            // Buscar el código en la base de datos
+            var verificationCode = await _codeRepository.ObtenerCodigoAsync(verificacion.Codigo);
+            if(verificationCode == null)
+            {
+                return NotFound("Código no encontrado o ya utilizado");
+            }
 
-            // Redirigir a la página principal
-            return Redirect($"http://localhost:3000/");
+            // Verificar que el código pertenezca al usuario correcto
+            if(verificationCode.UsuarioId != verificacion.UsuarioId)
+            {
+                return Unauthorized("El código no corresponde a este usuario");
+            }
+
+            // Verificar si el código ha expirado
+            if(_codeService.ExpiracionCodigo(verificationCode.Expires))
+            {
+                await _codeRepository.EliminarCodigoAsync(verificacion.Codigo);
+                return BadRequest("El código ha expirado. Solicita un nuevo código de verificación.");
+            }
+
+            // Verificar si es registro o login basado en emailVerified
+            bool isVerified = await _usuarioRepository.EmailVerificadoAsync(usuario.Id);
+
+            // Si no está verificado, es un código de registro (actualizar estado)
+            if(!isVerified)
+            {
+                await _usuarioRepository.VerificacionEmailAsync(verificationCode.UsuarioId, true);
+            }
+
+            // Eliminar el código usado
+            await _codeRepository.EliminarCodigoAsync(verificacion.Codigo);
+
+            // Generar JWT
+            DateTime jwtExpiracion = _codeService.TiempoExpiracionJWT();
+            string jwt = GenerateJwtToken(usuario, jwtExpiracion);
+            long expirationTimestamp = new DateTimeOffset(jwtExpiracion).ToUnixTimeSeconds();
+
+            // Devolver respuesta exitosa con JWT
+            return Ok(new
+            {
+                accessToken = jwt,
+                expiresAt = expirationTimestamp
+            });
+
         }
 
     }

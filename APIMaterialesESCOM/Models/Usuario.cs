@@ -4,58 +4,33 @@ using System.ComponentModel.DataAnnotations;
 
 namespace APIMaterialesESCOM.Models
 {
-    // Representa un usuario del sistema con todos sus datos
-    public class Usuario
+    public class Usuario // Representa un usuario del sistema con todos sus datos
     {
-        // Identificador único del usuario
-        public int Id { get; set; }
-
-        // Nombre del usuario
-        public string Nombre { get; set; } = string.Empty;
-
-        // Apellido paterno
-        public string ApellidoP { get; set; } = string.Empty;
-
-        // Apellido materno
-        public string ApellidoM { get; set; } = string.Empty;
-
-        // Correo electrónico (debe ser único en el sistema)
-        public string Email { get; set; } = string.Empty;
-
-        // Número de boleta o identificación escolar (puede ser nulo)
-        public string? Boleta { get; set; } = string.Empty;
-
-        // Rol del usuario en el sistema (estudiante, profesor, administrador)
-        public string Rol { get; set; } = string.Empty;
-
-        // Fecha y hora de creación del registro
-        public string FechaCreacion { get; set; } = string.Empty;
-
-        // Fecha y hora de la última actualización del registro
-        public string FechaActualizacion { get; set; } = string.Empty;
-        public bool VerificacionEmail { get; set; }
+        public int Id { get; set; } // Identificador único del usuario
+        public string Nombre { get; set; } = string.Empty; // Nombre del usuario
+        public string ApellidoP { get; set; } = string.Empty; // Apellido paterno
+        public string ApellidoM { get; set; } = string.Empty; // Apellido materno
+        public string Email { get; set; } = string.Empty; // Correo electrónico (debe ser único en el sistema)
+        public string? Boleta { get; set; } = string.Empty; // Número de boleta
+        public string Rol { get; set; } = string.Empty; // Rol del usuario en el sistema (estudiante, profesor, administrador)
+        public string FechaCreacion { get; set; } = string.Empty; // Fecha y hora de creación del registro
+        public string FechaActualizacion { get; set; } = string.Empty; // Fecha y hora de la última actualización del registro
+        public bool VerificacionEmail { get; set; } // Validación de email
     }
 
-    // DTO para operaciones de inicio de sesión
-    public class UsuarioSignIn
+    public class UsuarioSignIn // DTO para operaciones de inicio de sesión
     {
-        // Correo electrónico para autenticación
-        public string Email { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty; // Correo electrónico para autenticación
     }
 
-    // DTO para operaciones de registro de usuarios
-    public class UsuarioSignUp
+    public class UsuarioSignUp // DTO para operaciones de registro de usuarios
     {
-        // Nombre del usuario (campo obligatorio)
-        [Required(ErrorMessage = "El nombre es requerido")]
+        [Required(ErrorMessage = "El nombre es requerido")] // Nombre del usuario (campo obligatorio)
         public string Nombre { get; set; } = string.Empty;
 
-        // Apellido paterno (campo obligatorio)
-        [Required(ErrorMessage = "El apellido paterno es requerido")]
+        [Required(ErrorMessage = "El apellido paterno es requerido")] // Apellido paterno (campo obligatorio)
         public string ApellidoP { get; set; } = string.Empty;
-
-        // Apellido materno
-        public string ApellidoM { get; set; } = string.Empty;
+        public string ApellidoM { get; set; } = string.Empty; // Apellido materno
 
         // Correo electrónico con validaciones de formato y dominio
         [Required(ErrorMessage = "El email es requerido")]
@@ -68,11 +43,9 @@ namespace APIMaterialesESCOM.Models
         public string? Boleta { get; set; }
     }
 
-    // DTO para operaciones de actualización de usuarios
-    public class UsuarioUpdate
+    public class UsuarioUpdate // DTO para operaciones de actualización de usuarios
     {
-        // Campos opcionales que pueden ser actualizados
-        public string? Nombre { get; set; }
+        public string? Nombre { get; set; } // Campos opcionales que pueden ser actualizados
         public string? ApellidoP { get; set; }
         public string? ApellidoM { get; set; }
 
