@@ -146,8 +146,7 @@ namespace APIMaterialesESCOM.Controllers
 
             // Obtener el usuario creado para devolverlo en la respuesta
             return Ok(new {
-                mensaje = "Se ha enviado un código de verificación a tu correo electrónico",
-                usuarioID =  userId 
+                id =  userId 
             });
         }
 
@@ -201,7 +200,7 @@ namespace APIMaterialesESCOM.Controllers
 
             // Devolver que se requiere verificación por correo
             return Ok(new { 
-                usuarioID = usuario.Id 
+                id = usuario.Id 
             });
         }
 
