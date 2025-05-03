@@ -115,7 +115,7 @@ namespace APIMaterialesESCOM.Controllers
                     return Ok(new
                     {
                         mensaje = "Se ha reenviado un código de verificación a tu correo electrónico",
-                        usuarioId = existingUser.Id
+                        Id = existingUser.Id
                     });
                 }
             }
@@ -147,7 +147,7 @@ namespace APIMaterialesESCOM.Controllers
             // Obtener el usuario creado para devolverlo en la respuesta
             return Ok(new {
                 mensaje = "Se ha enviado un código de verificación a tu correo electrónico",
-                usuarioID =  userId 
+                Id =  userId 
             });
         }
 
@@ -200,8 +200,8 @@ namespace APIMaterialesESCOM.Controllers
             long expirationTimestamp = new DateTimeOffset(jwtExpiracion).ToUnixTimeSeconds();
 
             // Devolver que se requiere verificación por correo
-            return Ok(new { 
-                usuarioID = usuario.Id 
+            return Ok(new {
+                Id = usuario.Id 
             });
         }
 
