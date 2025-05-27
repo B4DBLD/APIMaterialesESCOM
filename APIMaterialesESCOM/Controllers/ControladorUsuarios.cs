@@ -62,6 +62,7 @@ namespace APIMaterialesESCOM.Controllers
         [HttpPost("signup")]
         public async Task<ActionResult<Usuario>> SignUp(UsuarioSignUp usuarioDto)
         {
+            usuarioDto.rol = "1";
             // Validación del modelo de datos recibido
             if(!ModelState.IsValid)
             {
@@ -120,8 +121,23 @@ namespace APIMaterialesESCOM.Controllers
                 }
             }
 
+            if (usuarioDto.Email.Contains("@ipn.mx"))
+            {
+                usuarioDto.rol = "2";
+                ApiRequest apiCliente = new ApiRequest();
+                var autor = new Autor
+                {
+                    Nombre = usuarioDto.Nombre,
+                    Apellido = $"{usuarioDto.ApellidoP} {usuarioDto.ApellidoM}",
+                    Email = usuarioDto.Email
+                };
+
+                ApiResponse response = await apiCliente.CrearAutor(autor);
+            }
+
             // Crear el nuevo usuario en la base de datos
             var userId = await _usuarioRepository.CreateUsuario(usuarioDto);
+             
 
             await _codeRepository.EliminaCodigoUsuarioAsync(userId);
 

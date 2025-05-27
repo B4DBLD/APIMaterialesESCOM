@@ -129,7 +129,7 @@ namespace APIMaterialesESCOM.Repositorios
             using var command = connection.CreateCommand();
             command.CommandText = @"
                INSERT INTO Usuario (nombre, apellidoP, apellidoM, email, boleta, rol, fechaCreacion, fechaActualizacion)
-               VALUES (@nombre, @apellidoP, @apellidoM, @email, @boleta, 'estudiante', datetime('now', 'utc'), datetime('now', 'utc'));
+               VALUES (@nombre, @apellidoP, @apellidoM, @email, @boleta, @rol, datetime('now', 'utc'), datetime('now', 'utc'));
                SELECT last_insert_rowid();";
 
             command.Parameters.AddWithValue("@nombre", usuario.Nombre);
@@ -137,6 +137,7 @@ namespace APIMaterialesESCOM.Repositorios
             command.Parameters.AddWithValue("@apellidoM", usuario.ApellidoM);
             command.Parameters.AddWithValue("@email", usuario.Email);
             command.Parameters.AddWithValue("@boleta", usuario.Boleta as object ?? DBNull.Value);
+            command.Parameters.AddWithValue("@rol", usuario.rol);
 
             long newId = (long)await command.ExecuteScalarAsync();
             return (int)newId;
