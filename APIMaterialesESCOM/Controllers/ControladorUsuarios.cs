@@ -61,7 +61,8 @@ namespace APIMaterialesESCOM.Controllers
         // POST: repositorio/usuarios/signup
         [HttpPost("signup")]
         public async Task<ActionResult<Usuario>> SignUp(UsuarioSignUp usuarioDto)
-        {
+        { 
+            int autorID = 0;
             usuarioDto.rol = "1";
             // Validación del modelo de datos recibido
             if(!ModelState.IsValid)
@@ -121,6 +122,11 @@ namespace APIMaterialesESCOM.Controllers
                 }
             }
 
+            
+
+            // Crear el nuevo usuario en la base de datos
+            var userId = await _usuarioRepository.CreateUsuario(usuarioDto);
+
             if (usuarioDto.Email.Contains("@ipn.mx"))
             {
                 usuarioDto.rol = "2";
@@ -131,13 +137,41 @@ namespace APIMaterialesESCOM.Controllers
                     Apellido = $"{usuarioDto.ApellidoP} {usuarioDto.ApellidoM}",
                     Email = usuarioDto.Email
                 };
+                ApiResponse GetResponse = await apiCliente.ObtenerAutor(autor.Email.ToString());
+                if (GetResponse != null)
+                {
+                    if (GetResponse.Ok == true)
+                    {
+                        autorID = GetResponse.Data.Id;
+                    }
+                    else
+                    {
+                        // Si no se encuentra el autor, se crea uno nuevo
+                        var createResponse = await apiCliente.CrearAutor(autor);
+                        if (createResponse.Ok)
+                        {
+                            autorID = createResponse.Data.Id;
+                        }
+                        else
+                        {
+                            return BadRequest("Error al crear el autor en el sistema externo");
+                        }
+                    }
 
-                ApiResponse response = await apiCliente.CrearAutor(autor);
+                    var relacionResponse = await apiCliente.CrearRelacion(userId, autorID);
+                    if (relacionResponse.Ok == false)
+                    {
+                        return BadRequest("Error al crear la relación entre el usuario y el autor en el sistema externo");
+                    }
+
+                }
+                else
+                {
+                    return BadRequest("La respuesta fue nula");
+                }
+
             }
 
-            // Crear el nuevo usuario en la base de datos
-            var userId = await _usuarioRepository.CreateUsuario(usuarioDto);
-             
 
             await _codeRepository.EliminaCodigoUsuarioAsync(userId);
 
@@ -163,7 +197,8 @@ namespace APIMaterialesESCOM.Controllers
             // Obtener el usuario creado para devolverlo en la respuesta
             return Ok(new {
                 mensaje = "Se ha enviado un código de verificación a tu correo electrónico",
-                Id =  userId 
+                Id =  userId,
+                autorID = autorID
             });
         }
 
@@ -172,7 +207,8 @@ namespace APIMaterialesESCOM.Controllers
         [HttpPost("signin")]
         public async Task<ActionResult<Usuario>> SignIn(UsuarioSignIn signinDto)
         {
-            // Verificar credenciales del usuario
+            // Verificar credenciales del usuario}
+            int autorID = 0;
             var usuario = await _usuarioRepository.Authenticate(signinDto.Email);
             if(usuario == null)
             {
@@ -208,6 +244,21 @@ namespace APIMaterialesESCOM.Controllers
 
             await _emailService.SendEmailAsync(usuario.Email, subject, message);
 
+            if (usuario.Rol == "2")
+            {
+                ApiRequest apiCliente = new ApiRequest();
+                var GetRelacionResponse = await apiCliente.GetRelacion(usuario.Id);
+                if (GetRelacionResponse.Ok)
+                {
+                    autorID = GetRelacionResponse.Data.Id;
+                }
+                else
+                {
+                    return BadRequest($"Error al obtener la relación del ID {usuario.Id}");
+                }
+
+            }
+
 
             DateTime jwtExpiracion = _codeService.TiempoExpiracionJWT();
             string jwt = GenerateJwtToken(usuario, jwtExpiracion);
@@ -217,7 +268,10 @@ namespace APIMaterialesESCOM.Controllers
 
             // Devolver que se requiere verificación por correo
             return Ok(new {
-                Id = usuario.Id 
+                Id = usuario.Id,
+                autorID = autorID,
+                accessToken = jwt,
+                expiresAt = expirationTimestamp
             });
         }
 
