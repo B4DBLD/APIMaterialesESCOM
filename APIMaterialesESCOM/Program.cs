@@ -47,7 +47,7 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-app.Urls.Add("http://10.0.0.4:8080");
+//app.Urls.Add("http://10.0.0.4:8080");
 
 // Configurar middleware
 app.UseSwagger();
