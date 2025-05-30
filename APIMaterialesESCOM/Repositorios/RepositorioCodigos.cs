@@ -21,13 +21,13 @@ namespace APIMaterialesESCOM.Repositorios
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-                INSERT INTO CodigoVerificacion (usuarioId, codigo, expires)
-                VALUES (@userId, @codigo, @expires);
+                INSERT INTO CodigoVerificacion (usuarioId, codigo, expira)
+                VALUES (@userId, @codigo, @expira);
                 SELECT last_insert_rowid();";
 
             command.Parameters.AddWithValue("@userId", userId);
             command.Parameters.AddWithValue("@codigo", codigo);
-            command.Parameters.AddWithValue("@expires", expirationTime.ToString("o"));
+            command.Parameters.AddWithValue("@expira", expirationTime.ToString("o"));
 
             var id = Convert.ToInt32(await command.ExecuteScalarAsync());
 
@@ -47,7 +47,7 @@ namespace APIMaterialesESCOM.Repositorios
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-                SELECT id, usuarioId, codigo, expires
+                SELECT id, usuarioId, codigo, expira
                 FROM CodigoVerificacion
                 WHERE codigo = @codigo";
 
