@@ -153,7 +153,6 @@ namespace APIMaterialesESCOM.Controllers
                 }
 
 
-
                 // Crear el nuevo usuario en la base de datos
                 var userId = await _usuarioRepository.CreateUsuario(usuarioDto);
 
@@ -224,9 +223,12 @@ namespace APIMaterialesESCOM.Controllers
 
                 await _emailService.SendEmailAsync(usuarioDto.Email, subject, message);
 
-                // Obtener el usuario creado para devolverlo en la respuesta
+                // Devolver respuesta estándar
                 return Ok(Respuesta<object>.Success(
-                    new { Id = userId, autorID = autorID },
+                    new 
+                    { 
+                        Id = userId
+                    },
                     "Se ha enviado un código de verificación a tu correo electrónico"
                 ));
             }
@@ -281,36 +283,11 @@ namespace APIMaterialesESCOM.Controllers
 
                 await _emailService.SendEmailAsync(usuario.Email, subject, message);
 
-                if (usuario.Rol == "2")
-                {
-                    ApiRequest apiCliente = new ApiRequest();
-                    var GetRelacionResponse = await apiCliente.GetRelacion(usuario.Id);
-                    if (GetRelacionResponse.Ok)
-                    {
-                        autorID = GetRelacionResponse.Data.Id;
-                    }
-                    else
-                    {
-                        return BadRequest(Respuesta.Failure($"Error al obtener la relación del ID {usuario.Id}"));
-                    }
-
-                }
-
-
-                DateTime jwtExpiracion = _codeService.TiempoExpiracionJWT();
-                string jwt = GenerateJwtToken(usuario, jwtExpiracion);
-
-                // Convertir a timestamp (segundos desde epoch)
-                long expirationTimestamp = new DateTimeOffset(jwtExpiracion).ToUnixTimeSeconds();
-
-                // Devolver que se requiere verificación por correo
+                // Devolver respuesta estándar
                 return Ok(Respuesta<object>.Success(
                     new
                     {
-                        Id = usuario.Id,
-                        autorID = autorID,
-                        accessToken = jwt,
-                        expiresAt = expirationTimestamp
+                        Id = usuario.Id
                     }
                 ));
             }
@@ -322,19 +299,21 @@ namespace APIMaterialesESCOM.Controllers
 
         }
 
-        private string GenerateJwtToken(Usuario usuario, DateTime expiracion)
+        private string GenerateJwtToken(Usuario usuario, DateTime expiracion, int autorId)
         {
             var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
             var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
             var claims = new[]
             {
-                new Claim(JwtRegisteredClaimNames.Sub, usuario.Id.ToString()),
+                new Claim("id", usuario.Id.ToString()),
                 new Claim(JwtRegisteredClaimNames.Email, usuario.Email),
                 new Claim("nombre", usuario.Nombre),
-                new Claim("apellido", usuario.ApellidoP),
+                new Claim("apellidoP", usuario.ApellidoP),
+                new Claim("apellidoM", usuario.ApellidoM),
                 new Claim("boleta", usuario.Boleta),
                 new Claim("rol", usuario.Rol),
+                new Claim("autorId", autorId.ToString()),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             };
 
@@ -447,6 +426,7 @@ namespace APIMaterialesESCOM.Controllers
         {
             try
             {
+                int autorID = 0;
                 // Validar el modelo recibido
                 if (!ModelState.IsValid)
                 {
@@ -475,12 +455,78 @@ namespace APIMaterialesESCOM.Controllers
                     }
                 }
 
-                // Realizar la actualización
-                var result = await _usuarioRepository.UpdateUsuario(id, usuarioDto);
+                if (usuarioDto.Rol == "2" || usuarioDto.Rol == "3")
+                {
+                    ApiRequest apiCliente = new ApiRequest();
+                    var autor = new Autor
+                    {
+                        Nombre = usuarioDto.Nombre,
+                        Apellido = $"{usuarioDto.ApellidoP} {usuarioDto.ApellidoM}",
+                        Email = usuarioDto.Email
+                    };
+                    ApiResponse GetResponse = await apiCliente.ObtenerAutor(autor.Email.ToString());
+                    if (GetResponse != null)
+                    {
+                        if (GetResponse.Ok == true)
+                        {
+                            autorID = GetResponse.Data.Id;
+                        }
+                        else
+                        {
+                            // Si no se encuentra el autor, se crea uno nuevo
+                            var createResponse = await apiCliente.CrearAutor(autor);
+                            if (createResponse.Ok)
+                            {
+                                autorID = createResponse.Data.Id;
+                            }
+                            else
+                            {
+                                return BadRequest(Respuesta.Failure("Error al crear el autor en el sistema externo"));
+                            }
+                        }
+
+                        var relacionResponse = await apiCliente.CrearRelacion(id, autorID);
+                        if (relacionResponse.Ok == false)
+                        {
+                            return BadRequest(Respuesta.Failure("Error al crear la relación entre el usuario y el autor en el sistema externo"));
+                        }
+
+                    }
+                    else
+                    {
+                        return BadRequest(Respuesta.Failure("La respuesta fue nula"));
+                    }
+
+                }else
+                {
+                    ApiRequest apiCliente = new ApiRequest();
+                    var GetRelacionResponse = await apiCliente.GetRelacion(usuario.Id);
+                    if (GetRelacionResponse.Ok)
+                    {
+                        autorID = GetRelacionResponse.Data.Id;
+                        var relacionResponse = await apiCliente.EliminarRelacion(id, autorID);
+                        if (relacionResponse.Ok == false)
+                        {
+                            return BadRequest(Respuesta.Failure("Error al eliminar la relación entre el usuario y el autor en el sistema externo"));
+                        }
+                    }
+                    else
+                    {
+                        return BadRequest(Respuesta.Failure($"Error al obtener la relación del ID {usuario.Id}"));
+                    }
+
+                    // Si el rol no es de autor, eliminar cualquier relación previa
+                    
+                }
+
+                    // Realizar la actualización
+                    var result = await _usuarioRepository.UpdateUsuario(id, usuarioDto);
                 if (result)
                 {
                     return Ok(Respuesta.Success("Usuario actualizado exitosamente"));
                 }
+
+
 
                 return BadRequest(Respuesta.Failure("Error al actualizar el usuario"));
 
@@ -527,6 +573,7 @@ namespace APIMaterialesESCOM.Controllers
         {
             try
             {
+                int autorID = 0;
                 if (string.IsNullOrEmpty(verificacion.Codigo) || verificacion.UsuarioId <= 0)
                 {
                     return BadRequest(Respuesta.Failure("Código inválido o usuario no especificado"));
@@ -537,6 +584,21 @@ namespace APIMaterialesESCOM.Controllers
                 if (usuario == null)
                 {
                     return NotFound(Respuesta.Failure("Usuario no encontrado"));
+                }
+
+                if (usuario.Rol == "2" || usuario.Rol == "3")
+                {
+                    ApiRequest apiCliente = new ApiRequest();
+                    var GetRelacionResponse = await apiCliente.GetRelacion(usuario.Id);
+                    if (GetRelacionResponse.Ok)
+                    {
+                        autorID = GetRelacionResponse.Data.Id;
+                    }
+                    else
+                    {
+                        return BadRequest(Respuesta.Failure($"Error al obtener la relación del ID {usuario.Id}"));
+                    }
+
                 }
 
                 // Buscar el código en la base de datos
@@ -573,15 +635,14 @@ namespace APIMaterialesESCOM.Controllers
 
                 // Generar JWT
                 DateTime jwtExpiracion = _codeService.TiempoExpiracionJWT();
-                string jwt = GenerateJwtToken(usuario, jwtExpiracion);
+                string jwt = GenerateJwtToken(usuario, jwtExpiracion, autorID);
                 long expirationTimestamp = new DateTimeOffset(jwtExpiracion).ToUnixTimeSeconds();
 
                 // Devolver respuesta exitosa con JWT
                 return Ok(Respuesta<object>.Success(
                      new
                      {
-                         accessToken = jwt,
-                         expiresAt = expirationTimestamp
+                         accessToken = jwt
                      }
                  ));
             }

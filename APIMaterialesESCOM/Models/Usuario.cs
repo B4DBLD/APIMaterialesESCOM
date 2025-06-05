@@ -40,7 +40,7 @@ namespace APIMaterialesESCOM.Models
 
         // Boleta o identificación (campo obligatorio)
         [Required(ErrorMessage = "La boleta es requerida")]
-        public string? Boleta { get; set; }
+        public string Boleta { get; set; }
         public string? rol { get; set; }
     }
 

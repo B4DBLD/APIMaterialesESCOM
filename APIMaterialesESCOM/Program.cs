@@ -24,16 +24,13 @@ var dbConfig = new DBConfig
 builder.Services.AddSingleton(dbConfig);
 
 // Registrar servicios de la aplicación
-builder.Services.AddScoped<InterfazRepositorioUsuarios, RepositorioUsuarios>();
-
-// Configurar los servicios para el envío de correos
 builder.Services.AddOptions();
 builder.Services.AddHttpClient();
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
-builder.Services.AddScoped<IEmailService, EmailService>();
-// Añadir en Program.cs donde registras otros servicios
-builder.Services.AddScoped<ICodeService, CodeService>();
+builder.Services.AddScoped<InterfazRepositorioUsuarios, RepositorioUsuarios>();
 builder.Services.AddScoped<InterfazRepositorioCodigos, RepositorioCodigos>();
+builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<ICodeService, CodeService>();
 
 // Configurar CORS
 builder.Services.AddCors(options =>

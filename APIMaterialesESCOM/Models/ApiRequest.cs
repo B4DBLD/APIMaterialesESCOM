@@ -167,5 +167,44 @@ namespace APIMaterialesESCOM.Models
             }
         }
 
+        public async Task<ApiResponse> EliminarRelacion(int userID, int autorID)
+        {
+            string urlGet = $"{url}/DeleteRelacion?userId={userID}&autorId={autorID}"; // Asumiendo que el email es único y se usa para identificar al autor
+            ApiResponse apiResponse = new ApiResponse { Ok = false };
+            client.DefaultRequestHeaders.Accept.Clear();
+            client.DefaultRequestHeaders.Accept.Add(
+            new MediaTypeWithQualityHeaderValue("application/json"));
+            try
+            {
+                HttpResponseMessage response = await client.DeleteAsync(urlGet);
+                string responseBody = await response.Content.ReadAsStringAsync();
+
+                if (!string.IsNullOrEmpty(responseBody))
+                {
+                    try
+                    {
+                        apiResponse = JsonSerializer.Deserialize<ApiResponse>(responseBody, new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        });
+                        // Devuelve el objeto con el valor de "Ok"
+                    }
+                    catch (JsonException jsonEx)
+                    {
+                        // Si el cuerpo no es un JSON válido o no contiene "Ok"
+                        Console.WriteLine($"Error al deserializar la respuesta JSON: {jsonEx.Message}");
+                        Console.WriteLine($"Cuerpo de la respuesta: {responseBody}");
+                        // Devolvemos un objeto indicando que no fue Ok, ya que no pudimos parsearlo
+                        apiResponse = new ApiResponse { Ok = false };
+                    }
+                }
+                return apiResponse;
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse { Ok = false };
+            }
+        }
+
     }
 }
