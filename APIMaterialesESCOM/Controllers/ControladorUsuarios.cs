@@ -38,7 +38,13 @@ namespace APIMaterialesESCOM.Controllers
         private static readonly string[] ROLES_CON_AUTOR = { ROL_PROFESOR_AUTOR, ROL_ADMIN };
 
         // Constructor que inicializa los servicios mediante inyección de dependencias
-        public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, IEmailService emailService, InterfazRepositorioOutbox outboxRepository, ILogger<ControladorUsuarios> logger, ICodeService tokenService, InterfazRepositorioCodigos tokenRepository, IConfiguration configuration, IAutorDirectService autorDirectService)
+        public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, 
+                                   IEmailService emailService, 
+                                   InterfazRepositorioOutbox outboxRepository, 
+                                   ILogger<ControladorUsuarios> logger, 
+                                   ICodeService tokenService, 
+                                   InterfazRepositorioCodigos tokenRepository, 
+                                   IConfiguration configuration, IAutorDirectService autorDirectService)
         {
             _usuarioRepository = usuarioRepository;
             _emailService = emailService;
@@ -216,7 +222,8 @@ namespace APIMaterialesESCOM.Controllers
                 // Verificar que el email esté verificado
                 if (!isVerified)
                 {
-                    return Unauthorized(Respuesta.Failure("Tu cuenta no ha sido verificada. Por favor, verifica tu correo electrónico antes de iniciar sesión."));
+                    return Unauthorized(Respuesta.Failure(
+                        "Tu cuenta no ha sido verificada. Por favor, verifica tu correo electrónico antes de iniciar sesión."));
                 }
 
                 // Enviar código de confirmación usando método auxiliar
@@ -241,6 +248,7 @@ namespace APIMaterialesESCOM.Controllers
 
         }
 
+        //Metodo auxiliar para generar el JWT
         private string GenerateJwtToken(Usuario usuario, DateTime expiracion, int autorId)
         {
             var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));

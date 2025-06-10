@@ -40,6 +40,7 @@ namespace APIMaterialesESCOM.Models
 
         // Boleta o identificación (campo obligatorio)
         [Required(ErrorMessage = "La boleta es requerida")]
+        [ValidarBoleta]
         public string Boleta { get; set; }
         public string? rol { get; set; }
     }
@@ -55,6 +56,7 @@ namespace APIMaterialesESCOM.Models
         [Validacion] // Validación personalizada para restricción de dominios
         public string? Email { get; set; }
 
+        [ValidarBoleta]
         public string? Boleta { get; set; }
         public string? Rol { get; set; }
     }
