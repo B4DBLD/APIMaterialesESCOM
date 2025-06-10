@@ -7,6 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 
 namespace APIMaterialesESCOM.Controllers
 {
@@ -22,16 +23,31 @@ namespace APIMaterialesESCOM.Controllers
         private readonly ILogger<ControladorUsuarios> _logger;
         private readonly ICodeService _codeService;
         private readonly InterfazRepositorioCodigos _codeRepository;
+        private readonly InterfazRepositorioOutbox _outboxRepository;
+        private readonly IAutorDirectService _autorDirectService;
+
+        // Constantes para roles y mensajes
+        private const string ROL_USUARIO_GENERAL = "1";
+        private const string ROL_PROFESOR_AUTOR = "2";
+        private const string ROL_ADMIN = "3";
+        private const string DOMINIO_IPN = "@ipn.mx";
+        
+        private const string SUBJECT_VERIFICACION = "Acceso a prototipo de Repositorio Digital ESCOM";
+        private const string SUBJECT_CONFIRMACION = "Confirmar inicio de sesión - Repositorio Digital ESCOM";
+        
+        private static readonly string[] ROLES_CON_AUTOR = { ROL_PROFESOR_AUTOR, ROL_ADMIN };
 
         // Constructor que inicializa los servicios mediante inyección de dependencias
-        public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, IEmailService emailService, ILogger<ControladorUsuarios> logger, ICodeService tokenService, InterfazRepositorioCodigos tokenRepository, IConfiguration configuration)
+        public ControladorUsuarios(InterfazRepositorioUsuarios usuarioRepository, IEmailService emailService, InterfazRepositorioOutbox outboxRepository, ILogger<ControladorUsuarios> logger, ICodeService tokenService, InterfazRepositorioCodigos tokenRepository, IConfiguration configuration, IAutorDirectService autorDirectService)
         {
             _usuarioRepository = usuarioRepository;
             _emailService = emailService;
             _logger = logger;
             _codeService = tokenService;
+            _outboxRepository = outboxRepository;
             _codeRepository = tokenRepository;
             _configuration = configuration;
+            _autorDirectService = autorDirectService;
         }
 
         // Obtiene la lista completa de usuarios registrados en el sistema
@@ -88,7 +104,6 @@ namespace APIMaterialesESCOM.Controllers
         {
             try
             {
-                int autorID = 0;
                 usuarioDto.rol = "1";
                 // Validación del modelo de datos recibido
                 if (!ModelState.IsValid)
@@ -101,13 +116,10 @@ namespace APIMaterialesESCOM.Controllers
                     return BadRequest(Respuesta<object>.Failure("Datos inválidos", errors));
                 }
 
-                // Verificar si ya existe un usuario con el mismo email
-                var existingUser = await _usuarioRepository.GetUsuarioByEmail(usuarioDto.Email);
+                // Verificar si ya existe un usuario con el mismo email y su estado de verificación en una sola consulta
+                var (existingUser, isVerified) = await _usuarioRepository.GetUsuarioWithVerificationAsync(usuarioDto.Email);
                 if (existingUser != null)
                 {
-                    // Verificar si el email ya está verificado
-                    bool isVerified = await _usuarioRepository.EmailVerificadoAsync(existingUser.Id);
-
                     if (isVerified)
                     {
                         // Si el email ya está verificado, devolver conflicto
@@ -116,33 +128,10 @@ namespace APIMaterialesESCOM.Controllers
                     else
                     {
                         // Si el email no está verificado, enviar nuevo código
-
-                        // Eliminar cualquier código previo
-                        await _codeRepository.EliminaCodigoUsuarioAsync(existingUser.Id);
-
-                        // Generar nuevo código numérico
-                        string recodigo = _codeService.GenerarCodigo();
-                        DateTime expiracion = _codeService.TiempoExpiracion();
-
-                        // Guardar código en base de datos
-                        await _codeRepository.CrearCodigoAsync(existingUser.Id, recodigo, expiracion);
-
-                        // Formatear código para el correo
-                        string codigoFormateado = recodigo.Length == 6
-                            ? $"{recodigo.Substring(0, 3)}-{recodigo.Substring(3, 3)}"
-                            : recodigo;
-
-                        // Preparar y enviar correo con código
-                        string resubject = "Acceso a prototipo de Repositorio Digital ESCOM";
-                        string remessage = GenerarCorreoVerificacion(
-                            existingUser.Nombre,
-                            existingUser.ApellidoP,
-                            existingUser.Email,
-                            existingUser.Boleta,
-                            codigoFormateado
-                        );
-
-                        await _emailService.SendEmailAsync(existingUser.Email, resubject, remessage);
+                        if (!await EnviarCodigoVerificacionAsync(existingUser, TipoCorreo.Verificacion))
+                        {
+                            return StatusCode(500, Respuesta.Failure("Error al enviar el correo de verificación"));
+                        }
 
                         // Retornar respuesta exitosa
                         return Ok(Respuesta<object>.Success(
@@ -156,72 +145,42 @@ namespace APIMaterialesESCOM.Controllers
                 // Crear el nuevo usuario en la base de datos
                 var userId = await _usuarioRepository.CreateUsuario(usuarioDto);
 
+                // Si es email @ipn.mx, programar creación de autor en background
                 if (usuarioDto.Email.Contains("@ipn.mx"))
                 {
                     usuarioDto.rol = "2";
-                    ApiRequest apiCliente = new ApiRequest();
-                    var autor = new Autor
+                    
+                    var eventData = new UsuarioEventData
                     {
+                        UsuarioId = userId,
+                        Email = usuarioDto.Email,
                         Nombre = usuarioDto.Nombre,
-                        Apellido = $"{usuarioDto.ApellidoP} {usuarioDto.ApellidoM}",
-                        Email = usuarioDto.Email
+                        ApellidoP = usuarioDto.ApellidoP,
+                        ApellidoM = usuarioDto.ApellidoM,
+                        RolNuevo = "2",
+                        RolAnterior = "1"
                     };
-                    ApiResponse GetResponse = await apiCliente.ObtenerAutor(autor.Email.ToString());
-                    if (GetResponse != null)
-                    {
-                        if (GetResponse.Ok == true)
-                        {
-                            autorID = GetResponse.Data.Id;
-                        }
-                        else
-                        {
-                            // Si no se encuentra el autor, se crea uno nuevo
-                            var createResponse = await apiCliente.CrearAutor(autor);
-                            if (createResponse.Ok)
-                            {
-                                autorID = createResponse.Data.Id;
-                            }
-                            else
-                            {
-                                return BadRequest(Respuesta.Failure("Error al crear el autor en el sistema externo"));
-                            }
-                        }
-
-                        var relacionResponse = await apiCliente.CrearRelacion(userId, autorID);
-                        if (relacionResponse.Ok == false)
-                        {
-                            return BadRequest(Respuesta.Failure("Error al crear la relación entre el usuario y el autor en el sistema externo"));
-                        }
-
-                    }
-                    else
-                    {
-                        return BadRequest(Respuesta.Failure("La respuesta fue nula"));
-                    }
-
+                    
+                    await _outboxRepository.AddEventAsync("CREAR_AUTOR", JsonSerializer.Serialize(eventData), userId);
                 }
 
 
-                await _codeRepository.EliminaCodigoUsuarioAsync(userId);
+                // Crear objeto Usuario para el método auxiliar
+                var nuevoUsuario = new Usuario
+                {
+                    Id = userId,
+                    Nombre = usuarioDto.Nombre,
+                    ApellidoP = usuarioDto.ApellidoP,
+                    ApellidoM = usuarioDto.ApellidoM,
+                    Email = usuarioDto.Email,
+                    Boleta = usuarioDto.Boleta
+                };
 
-                //Generar el código de verificación 
-                string codigo = _codeService.GenerarCodigo();
-                DateTime expiracíon = _codeService.TiempoExpiracion();
-
-                //Guardar token en base de datos
-                await _codeRepository.CrearCodigoAsync(userId, codigo, expiracíon);
-
-                // Preparar y enviar correo con código
-                string subject = "Acceso a prototipo de Repositorio Digital ESCOM";
-                string message = GenerarCorreoVerificacion(
-                    usuarioDto.Nombre,
-                    usuarioDto.ApellidoP,
-                    usuarioDto.Email,
-                    usuarioDto.Boleta,
-                    codigo
-                );
-
-                await _emailService.SendEmailAsync(usuarioDto.Email, subject, message);
+                // Enviar código de verificación usando método auxiliar
+                if (!await EnviarCodigoVerificacionAsync(nuevoUsuario, TipoCorreo.Verificacion))
+                {
+                    return StatusCode(500, Respuesta.Failure("Error al enviar el correo de verificación"));
+                }
 
                 // Devolver respuesta estándar
                 return Ok(Respuesta<object>.Success(
@@ -246,42 +205,25 @@ namespace APIMaterialesESCOM.Controllers
         {
             try
             {
-                // Verificar credenciales del usuario}
+                // Verificar credenciales del usuario y estado de verificación en una sola consulta
                 int autorID = 0;
-                var usuario = await _usuarioRepository.Authenticate(signinDto.Email);
+                var (usuario, isVerified) = await _usuarioRepository.GetUsuarioWithVerificationAsync(signinDto.Email);
                 if (usuario == null)
                 {
                     return Unauthorized(Respuesta.Failure("Email incorrecto"));
                 }
 
                 // Verificar que el email esté verificado
-                bool isVerified = await _usuarioRepository.EmailVerificadoAsync(usuario.Id);
                 if (!isVerified)
                 {
                     return Unauthorized(Respuesta.Failure("Tu cuenta no ha sido verificada. Por favor, verifica tu correo electrónico antes de iniciar sesión."));
                 }
 
-                await _codeRepository.EliminaCodigoUsuarioAsync(usuario.Id);
-
-                // Generar token para autenticación por correo
-                string codigo = _codeService.GenerarCodigo();
-                DateTime expiracion = _codeService.TiempoExpiracion(); // Usa la expiración estándar
-
-                // Guardar nuevo token en base de datos
-                await _codeRepository.CrearCodigoAsync(usuario.Id, codigo, expiracion);
-
-
-                // Enviar correo de confirmación de inicio de sesión
-                string subject = "Confirmar inicio de sesión - Repositorio Digital ESCOM";
-                string message = GenerarCorreoConfirmar(
-                    usuario.Nombre,
-                    usuario.ApellidoP,
-                    usuario.Email,
-                    usuario.Boleta,
-                    codigo
-                );
-
-                await _emailService.SendEmailAsync(usuario.Email, subject, message);
+                // Enviar código de confirmación usando método auxiliar
+                if (!await EnviarCodigoVerificacionAsync(usuario, TipoCorreo.Confirmacion))
+                {
+                    return StatusCode(500, Respuesta.Failure("Error al enviar el correo de confirmación"));
+                }
 
                 // Devolver respuesta estándar
                 return Ok(Respuesta<object>.Success(
@@ -328,6 +270,51 @@ namespace APIMaterialesESCOM.Controllers
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
+        // Enum para tipos de correo
+        private enum TipoCorreo
+        {
+            Verificacion,
+            Confirmacion
+        }
+
+        // Método auxiliar centralizado para generar y enviar códigos de verificación
+        private async Task<bool> EnviarCodigoVerificacionAsync(Usuario usuario, TipoCorreo tipoCorreo)
+        {
+            try
+            {
+                // 1. Limpiar códigos previos
+                await _codeRepository.EliminaCodigoUsuarioAsync(usuario.Id);
+
+                // 2. Generar nuevo código
+                string codigo = _codeService.GenerarCodigo();
+                DateTime expiracion = _codeService.TiempoExpiracion();
+
+                // 3. Guardar en BD
+                await _codeRepository.CrearCodigoAsync(usuario.Id, codigo, expiracion);
+
+                // 4. Determinar contenido según tipo (los métodos HTML formatean el código internamente)
+                var (subject, message) = tipoCorreo switch
+                {
+                    TipoCorreo.Verificacion => (
+                        SUBJECT_VERIFICACION,
+                        GenerarCorreoVerificacion(usuario.Nombre, usuario.ApellidoP, usuario.Email, usuario.Boleta, codigo)
+                    ),
+                    TipoCorreo.Confirmacion => (
+                        SUBJECT_CONFIRMACION,
+                        GenerarCorreoConfirmar(usuario.Nombre, usuario.ApellidoP, usuario.Email, usuario.Boleta, codigo)
+                    ),
+                    _ => throw new ArgumentException("Tipo de correo no válido")
+                };
+
+                // 6. Enviar correo
+                return await _emailService.SendEmailAsync(usuario.Email, subject, message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error enviando código de verificación a {usuario.Email}");
+                return false;
+            }
+        }
 
         // Método auxiliar para generar el contenido HTML del correo electrónico
         // con información personalizada del usuario y un botón de acceso
@@ -426,7 +413,6 @@ namespace APIMaterialesESCOM.Controllers
         {
             try
             {
-                int autorID = 0;
                 // Validar el modelo recibido
                 if (!ModelState.IsValid)
                 {
@@ -448,75 +434,30 @@ namespace APIMaterialesESCOM.Controllers
                 // Verificar si se está actualizando el email y si ya existe otro usuario con ese email
                 if (!string.IsNullOrEmpty(usuarioDto.Email) && usuarioDto.Email != usuario.Email)
                 {
-                    var existingUser = await _usuarioRepository.GetUsuarioByEmail(usuarioDto.Email);
+                    var (existingUser, _) = await _usuarioRepository.GetUsuarioWithVerificationAsync(usuarioDto.Email);
                     if (existingUser != null)
                     {
                         return Conflict(Respuesta.Failure("Ya existe un usuario con este email"));
                     }
                 }
 
-                if (usuarioDto.Rol == "2" || usuarioDto.Rol == "3")
+                // Determinar qué evento programar según el cambio de rol
+                string tipoEvento = _autorDirectService.DeterminarTipoEventoActualizacion(usuario.Rol, usuarioDto.Rol);
+                
+                if (tipoEvento != "SIN_CAMBIOS")
                 {
-                    ApiRequest apiCliente = new ApiRequest();
-                    var autor = new Autor
+                    var eventData = new UsuarioEventData
                     {
+                        UsuarioId = id,
+                        Email = usuarioDto.Email,
                         Nombre = usuarioDto.Nombre,
-                        Apellido = $"{usuarioDto.ApellidoP} {usuarioDto.ApellidoM}",
-                        Email = usuarioDto.Email
+                        ApellidoP = usuarioDto.ApellidoP,
+                        ApellidoM = usuarioDto.ApellidoM,
+                        RolAnterior = usuario.Rol,
+                        RolNuevo = usuarioDto.Rol
                     };
-                    ApiResponse GetResponse = await apiCliente.ObtenerAutor(autor.Email.ToString());
-                    if (GetResponse != null)
-                    {
-                        if (GetResponse.Ok == true)
-                        {
-                            autorID = GetResponse.Data.Id;
-                        }
-                        else
-                        {
-                            // Si no se encuentra el autor, se crea uno nuevo
-                            var createResponse = await apiCliente.CrearAutor(autor);
-                            if (createResponse.Ok)
-                            {
-                                autorID = createResponse.Data.Id;
-                            }
-                            else
-                            {
-                                return BadRequest(Respuesta.Failure("Error al crear el autor en el sistema externo"));
-                            }
-                        }
-
-                        var relacionResponse = await apiCliente.CrearRelacion(id, autorID);
-                        if (relacionResponse.Ok == false)
-                        {
-                            return BadRequest(Respuesta.Failure("Error al crear la relación entre el usuario y el autor en el sistema externo"));
-                        }
-
-                    }
-                    else
-                    {
-                        return BadRequest(Respuesta.Failure("La respuesta fue nula"));
-                    }
-
-                }else
-                {
-                    ApiRequest apiCliente = new ApiRequest();
-                    var GetRelacionResponse = await apiCliente.GetRelacion(usuario.Id);
-                    if (GetRelacionResponse.Ok)
-                    {
-                        autorID = GetRelacionResponse.Data.Id;
-                        var relacionResponse = await apiCliente.EliminarRelacion(id, autorID);
-                        if (relacionResponse.Ok == false)
-                        {
-                            return BadRequest(Respuesta.Failure("Error al eliminar la relación entre el usuario y el autor en el sistema externo"));
-                        }
-                    }
-                    else
-                    {
-                        return BadRequest(Respuesta.Failure($"Error al obtener la relación del ID {usuario.Id}"));
-                    }
-
-                    // Si el rol no es de autor, eliminar cualquier relación previa
                     
+                    await _outboxRepository.AddEventAsync(tipoEvento, JsonSerializer.Serialize(eventData), id);
                 }
 
                     // Realizar la actualización
@@ -586,19 +527,10 @@ namespace APIMaterialesESCOM.Controllers
                     return NotFound(Respuesta.Failure("Usuario no encontrado"));
                 }
 
+                // Obtener autorID para JWT (llamada síncrona solo para login)
                 if (usuario.Rol == "2" || usuario.Rol == "3")
                 {
-                    ApiRequest apiCliente = new ApiRequest();
-                    var GetRelacionResponse = await apiCliente.GetRelacion(usuario.Id);
-                    if (GetRelacionResponse.Ok)
-                    {
-                        autorID = GetRelacionResponse.Data.Id;
-                    }
-                    else
-                    {
-                        return BadRequest(Respuesta.Failure($"Error al obtener la relación del ID {usuario.Id}"));
-                    }
-
+                    autorID = await _autorDirectService.ObtenerAutorIdAsync(usuario.Id);
                 }
 
                 // Buscar el código en la base de datos
@@ -621,8 +553,8 @@ namespace APIMaterialesESCOM.Controllers
                     return BadRequest(Respuesta.Failure("El código ha expirado. Solicita un nuevo código de verificación."));
                 }
 
-                // Verificar si es registro o login basado en emailVerified
-                bool isVerified = await _usuarioRepository.EmailVerificadoAsync(usuario.Id);
+                // Verificar si es registro o login basado en emailVerified (ya disponible en el objeto usuario)
+                bool isVerified = usuario.VerificacionEmail;
 
                 // Si no está verificado, es un código de registro (actualizar estado)
                 if (!isVerified)

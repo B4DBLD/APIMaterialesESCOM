@@ -16,21 +16,26 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Configuración de la base de datos
+// Configuraciï¿½n de la base de datos
 var dbConfig = new DBConfig
 {
     ConnectionString = builder.Configuration.GetConnectionString("DefaultConnection")
 };
 builder.Services.AddSingleton(dbConfig);
 
-// Registrar servicios de la aplicación
+// Registrar servicios de la aplicaciï¿½n
 builder.Services.AddOptions();
 builder.Services.AddHttpClient();
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 builder.Services.AddScoped<InterfazRepositorioUsuarios, RepositorioUsuarios>();
 builder.Services.AddScoped<InterfazRepositorioCodigos, RepositorioCodigos>();
+builder.Services.AddScoped<InterfazRepositorioOutbox, RepositorioOutbox>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<ICodeService, CodeService>();
+builder.Services.AddScoped<IAutorDirectService, AutorDirectService>();
+
+// Registrar Background Service
+builder.Services.AddHostedService<AutorBackgroundService>();
 
 // Configurar CORS
 builder.Services.AddCors(options =>
@@ -44,7 +49,7 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-app.Urls.Add("http://10.0.0.4:8080");
+//app.Urls.Add("http://10.0.0.4:8080");
 
 // Configurar middleware
 app.UseSwagger();

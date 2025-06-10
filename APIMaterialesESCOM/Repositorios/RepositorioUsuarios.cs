@@ -16,6 +16,30 @@ namespace APIMaterialesESCOM.Repositorios
             _dbConfig = dbConfig;
         }
 
+        // Método helper para mapear SqliteDataReader a Usuario
+        private Usuario MapearUsuario(SqliteDataReader reader, bool incluirFechas = true)
+        {
+            var usuario = new Usuario
+            {
+                Id = reader.GetInt32(0),
+                Nombre = reader.GetString(1),
+                ApellidoP = reader.GetString(2),
+                ApellidoM = reader.GetString(3),
+                Email = reader.GetString(4),
+                Boleta = reader.IsDBNull(5) ? null : reader.GetString(5),
+                Rol = reader.GetString(6),
+                VerificacionEmail = reader.GetInt32(7) == 1
+            };
+
+            if (incluirFechas && reader.FieldCount > 8)
+            {
+                usuario.FechaCreacion = reader.GetString(8);
+                usuario.FechaActualizacion = reader.GetString(9);
+            }
+
+            return usuario;
+        }
+
         // Obtiene todos los usuarios registrados en el sistema
         public async Task<IEnumerable<Usuario>> GetAllUsuarios()
         {
@@ -32,20 +56,7 @@ namespace APIMaterialesESCOM.Repositorios
 
             while(await reader.ReadAsync())
             {
-                usuarios.Add(new Usuario
-                {
-                    Id = reader.GetInt32(0),
-                    Nombre = reader.GetString(1),
-                    ApellidoP = reader.GetString(2),
-                    ApellidoM = reader.GetString(3),
-                    Email = reader.GetString(4),
-                    Boleta = reader.IsDBNull(5) ? null : reader.GetString(5),
-                    Rol = reader.GetString(6),
-                    VerificacionEmail = reader.GetInt32(7) == 1,
-                    FechaCreacion = reader.GetString(8),
-                    FechaActualizacion = reader.GetString(9)
-                    
-                });
+                usuarios.Add(MapearUsuario(reader, incluirFechas: true));
             }
 
             return usuarios;
@@ -66,60 +77,14 @@ namespace APIMaterialesESCOM.Repositorios
 
             using var reader = await command.ExecuteReaderAsync();
 
-            if(await reader.ReadAsync())
-            {
-                return new Usuario
-                {
-                    Id = reader.GetInt32(0),
-                    Nombre = reader.GetString(1),
-                    ApellidoP = reader.GetString(2),
-                    ApellidoM = reader.GetString(3),
-                    Email = reader.GetString(4),
-                    Boleta = reader.IsDBNull(5) ? null : reader.GetString(5),
-                    Rol = reader.GetString(6),
-                    VerificacionEmail = reader.GetInt32(7) == 1,
-                    FechaCreacion = reader.GetString(8),
-                    FechaActualizacion = reader.GetString(9)
-                    
-                };
-            }
-
-            return null;
+            return await reader.ReadAsync() ? MapearUsuario(reader, incluirFechas: true) : null;
         }
 
         // Busca un usuario por su dirección de correo electrónico
         public async Task<Usuario?> GetUsuarioByEmail(string email)
         {
-            using var connection = new SqliteConnection(_dbConfig.ConnectionString);
-            await connection.OpenAsync();
-
-            using var command = connection.CreateCommand();
-            command.CommandText = @"
-               SELECT id, nombre, apellidoP, apellidoM, email, boleta, rol, emailVerificado, fechaCreacion, fechaActualizacion
-               FROM Usuario 
-               WHERE email = @email";
-            command.Parameters.AddWithValue("@email", email);
-
-            using var reader = await command.ExecuteReaderAsync();
-
-            if(await reader.ReadAsync())
-            {
-                return new Usuario
-                {
-                    Id = reader.GetInt32(0),
-                    Nombre = reader.GetString(1),
-                    ApellidoP = reader.GetString(2),
-                    ApellidoM = reader.GetString(3),
-                    Email = reader.GetString(4),
-                    Boleta = reader.IsDBNull(5) ? null : reader.GetString(5),
-                    Rol = reader.GetString(6),
-                    VerificacionEmail = reader.GetInt32(7) == 1,
-                    FechaCreacion = reader.GetString(8),
-                    FechaActualizacion = reader.GetString(9)
-                };
-            }
-
-            return null;
+            var (usuario, _) = await GetUsuarioWithVerificationAsync(email);
+            return usuario;
         }
 
         // Crea un nuevo usuario en el sistema
@@ -218,34 +183,8 @@ namespace APIMaterialesESCOM.Repositorios
         // Autentica a un usuario utilizando email y boleta
         public async Task<Usuario?> Authenticate(string email)
         {
-            using var connection = new SqliteConnection(_dbConfig.ConnectionString);
-            await connection.OpenAsync();
-
-            using var command = connection.CreateCommand();
-            command.CommandText = @"
-               SELECT id, nombre, apellidoP, apellidoM, email, boleta, rol, emailVerificado 
-               FROM Usuario 
-               WHERE email = @email";
-            command.Parameters.AddWithValue("@email", email);
-
-            using var reader = await command.ExecuteReaderAsync();
-
-            if(await reader.ReadAsync())
-            {
-                return new Usuario
-                {
-                    Id = reader.GetInt32(0),
-                    Nombre = reader.GetString(1),
-                    ApellidoP = reader.GetString(2),
-                    ApellidoM = reader.GetString(3),
-                    Email = reader.GetString(4),
-                    Boleta = reader.IsDBNull(5) ? null : reader.GetString(5),
-                    Rol = reader.GetString(6),
-                    VerificacionEmail = reader.GetInt32(7) == 1
-                };
-            }
-
-            return null;
+            var (usuario, _) = await GetUsuarioWithVerificationAsync(email);
+            return usuario;
         }
 
         public async Task<bool> VerificacionEmailAsync(int userId, bool verified)
@@ -274,6 +213,30 @@ namespace APIMaterialesESCOM.Repositorios
             var result = await command.ExecuteScalarAsync();
 
             return result != null && Convert.ToInt32(result) == 1;
+        }
+
+        // Método optimizado que combina búsqueda de usuario y verificación en una sola consulta
+        public async Task<(Usuario? usuario, bool isVerified)> GetUsuarioWithVerificationAsync(string email)
+        {
+            using var connection = new SqliteConnection(_dbConfig.ConnectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+               SELECT id, nombre, apellidoP, apellidoM, email, boleta, rol, emailVerificado, fechaCreacion, fechaActualizacion
+               FROM Usuario 
+               WHERE email = @email";
+            command.Parameters.AddWithValue("@email", email);
+
+            using var reader = await command.ExecuteReaderAsync();
+
+            if (await reader.ReadAsync())
+            {
+                var usuario = MapearUsuario(reader, incluirFechas: true);
+                return (usuario, usuario.VerificacionEmail);
+            }
+
+            return (null, false);
         }
     }
 }

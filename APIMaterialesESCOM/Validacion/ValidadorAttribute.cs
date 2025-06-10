@@ -27,6 +27,8 @@ namespace APIMaterialesESCOM.Validacion
             // Verificar que el dominio sea uno de los permitidos
             if(email.EndsWith("@alumno.ipn.mx") || email.EndsWith("@ipn.mx"))
             {
+                
+
                 return ValidationResult.Success;
             }
 

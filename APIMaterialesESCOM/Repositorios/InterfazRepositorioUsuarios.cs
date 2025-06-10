@@ -42,5 +42,8 @@ namespace APIMaterialesESCOM.Repositorios
 
         Task<bool> VerificacionEmailAsync(int userId, bool verified);
         Task<bool> EmailVerificadoAsync(int userId);
+        
+        // Métodos optimizados para reducir consultas
+        Task<(Usuario? usuario, bool isVerified)> GetUsuarioWithVerificationAsync(string email);
     }
 }
