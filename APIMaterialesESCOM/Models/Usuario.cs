@@ -38,10 +38,9 @@ namespace APIMaterialesESCOM.Models
         [Validacion] // Validación personalizada para restricción de dominios
         public string Email { get; set; } = string.Empty;
 
-        // Boleta o identificación (campo obligatorio)
-        [Required(ErrorMessage = "La boleta es requerida")]
+        // Boleta o identificación (obligatorio solo para @alumno.ipn.mx)
         [ValidarBoleta]
-        public string Boleta { get; set; }
+        public string? Boleta { get; set; }
         public string? rol { get; set; }
     }
 

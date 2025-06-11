@@ -7,9 +7,21 @@ namespace APIMaterialesESCOM.Validacion
     {
         protected override ValidationResult IsValid(object value, ValidationContext validationContext)
         {
+            // Obtener el email del objeto siendo validado
+            var emailProperty = validationContext.ObjectType.GetProperty("Email");
+            var email = emailProperty?.GetValue(validationContext.ObjectInstance)?.ToString();
+
+            // Si el email es @alumno.ipn.mx, la boleta es obligatoria
+            bool esAlumnoIpn = !string.IsNullOrEmpty(email) && email.EndsWith("@alumno.ipn.mx");
+            
             if (value == null || string.IsNullOrWhiteSpace(value.ToString()))
             {
-                return new ValidationResult("La boleta es requerida");
+                if (esAlumnoIpn)
+                {
+                    return new ValidationResult("La boleta es requerida");
+                }
+                // Para otros dominios (@ipn.mx), la boleta no es obligatoria
+                return ValidationResult.Success;
             }
 
             string boleta = value.ToString().Trim();
@@ -30,7 +42,7 @@ namespace APIMaterialesESCOM.Validacion
             // Validar que el año esté dentro del rango permitido (desde 2000 hasta año actual + 1)
             if (anioBoleta < 2000 || anioBoleta > anioActual + 1)
             {
-                return new ValidationResult($"El año de la boleta debe estar entre 2000 y {anioActual + 1}");
+                return new ValidationResult($"El año de la boleta debe estar entre 2000 y {anioActual}");
             }
 
             return ValidationResult.Success;
